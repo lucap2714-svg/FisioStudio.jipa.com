@@ -1,0 +1,7 @@
+{
+  "name": "FisioStudio - Gestão de Pilates e Fisioterapia",
+  "description": "Sistema completo para gestão de estúdio de pilates e fisioterapia com foco em agendamento, check-in via QR Code e ficha de avaliação imutável.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
