@@ -11,7 +11,7 @@ import { db } from './db';
 export const studentsService = {
   async list(): Promise<Student[]> {
     if (!isSupabaseConfigured) {
-      throw new Error("[Supabase] Credenciais não configuradas. Defina SUPABASE_URL e SUPABASE_KEY.");
+      throw new Error("[Supabase] Credenciais não configuradas. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.");
     }
 
     try {

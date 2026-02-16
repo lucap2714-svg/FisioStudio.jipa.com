@@ -5,29 +5,30 @@ import { createClient } from '@supabase/supabase-js';
  * Função utilitária para buscar variáveis de ambiente de forma robusta
  */
 const getEnv = (name: string): string | undefined => {
-  // 1. Tenta via process.env
-  if (typeof process !== 'undefined' && process.env?.[name]) {
-    const val = process.env[name];
-    if (val && val !== 'undefined' && val !== 'null' && val.trim() !== '') return val;
-  }
-  // 2. Tenta via import.meta.env (Vite)
+  // 1. Tenta via import.meta.env (Vite)
   try {
     const val = (import.meta as any).env?.[name];
     if (val && val !== 'undefined' && val !== 'null' && val.trim() !== '') return val;
   } catch (e) {}
+
+  // 2. Tenta via process.env (SSR/build)
+  if (typeof process !== 'undefined' && process.env?.[name]) {
+    const val = process.env[name];
+    if (val && val !== 'undefined' && val !== 'null' && val.trim() !== '') return val;
+  }
   
   // 3. Tenta via globalThis (Browser environment)
   try {
-    const val = (globalThis as any).VITE_SUPABASE_URL || (globalThis as any).VITE_SUPABASE_ANON_KEY;
     if (name === 'VITE_SUPABASE_URL' && typeof (globalThis as any).VITE_SUPABASE_URL === 'string') return (globalThis as any).VITE_SUPABASE_URL;
     if (name === 'VITE_SUPABASE_ANON_KEY' && typeof (globalThis as any).VITE_SUPABASE_ANON_KEY === 'string') return (globalThis as any).VITE_SUPABASE_ANON_KEY;
+    if (name === 'VITE_SUPABASE_KEY' && typeof (globalThis as any).VITE_SUPABASE_KEY === 'string') return (globalThis as any).VITE_SUPABASE_KEY;
   } catch (e) {}
 
   return undefined;
 };
 
 const supabaseUrl = getEnv('VITE_SUPABASE_URL');
-const supabaseAnonKey = getEnv('VITE_SUPABASE_ANON_KEY');
+const supabaseAnonKey = getEnv('VITE_SUPABASE_ANON_KEY') || getEnv('VITE_SUPABASE_KEY');
 
 /**
  * Verificação rigorosa.
@@ -40,7 +41,7 @@ export const isSupabaseConfigured = !!(
 );
 
 if (!isSupabaseConfigured) {
-  console.warn("[Supabase] Credenciais não encontradas. O sistema operará em Modo Local (IndexedDB).");
+  console.warn("[Supabase] Credenciais não encontradas. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.");
 }
 
 /**
@@ -58,7 +59,7 @@ export const supabase = isSupabaseConfigured
           });
         }
         return () => {
-          throw new Error("Supabase não configurado. Verifique as chaves VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.");
+          throw new Error("Supabase não configurado. Verifique VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.");
         };
       }
     });
