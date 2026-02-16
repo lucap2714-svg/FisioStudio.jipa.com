@@ -11,9 +11,7 @@ import { db } from './db';
 export const studentsService = {
   async list(): Promise<Student[]> {
     if (!isSupabaseConfigured) {
-      console.debug("[StudentsService] Usando fallback local (Supabase não configurado)");
-      const data = await (db as any).getRawDataInternal();
-      return data?.students || [];
+      throw new Error("[Supabase] Credenciais não configuradas. Defina SUPABASE_URL e SUPABASE_KEY.");
     }
 
     try {
@@ -37,9 +35,8 @@ export const studentsService = {
         billingStatus: row.billing_status || BillingStatus.SEM_INFO 
       }));
     } catch (e) {
-      console.warn("[StudentsService] Falha na rede, tentando fallback local:", e);
-      const data = await (db as any).getRawDataInternal();
-      return data?.students || [];
+      console.error("[Supabase] Falha ao carregar alunos:", e);
+      throw e;
     }
   },
 
