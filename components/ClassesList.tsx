@@ -370,7 +370,7 @@ export default function ClassesList({ onSelectClass, onOpenStudentProfile, onOpe
       {loading ? (
         <div className="py-20 text-center animate-pulse text-brand-dark font-black uppercase text-[10px] tracking-widest">Sincronizando Banco de Dados...</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 px-4 md:px-0">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 sm:gap-5 px-3 sm:px-4 md:px-0">
           {plannerData.map((group, groupIdx) => (
             <div key={group.day} className="flex flex-col gap-3">
               <header className="bg-brand-primary px-4 py-3 rounded-xl text-white flex justify-between items-center shadow-premium">

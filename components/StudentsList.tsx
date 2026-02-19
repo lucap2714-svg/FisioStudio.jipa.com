@@ -463,7 +463,7 @@ export default function StudentsList({ onOpenAssessment, onOpenTrainingPlan }: S
           <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">Nenhum aluno encontrado na nuvem.</p>
         </div>
       ) : !error && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 px-4 md:px-0">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 px-3 sm:px-4 md:px-0">
           {filteredAndSortedStudents.map(student => (
             <div key={student.id} className="bg-white p-8 rounded-[2.5rem] shadow-premium border border-brand-light/10 hover:shadow-glow transition-all group relative overflow-visible">
                

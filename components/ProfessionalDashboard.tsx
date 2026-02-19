@@ -31,6 +31,7 @@ const Icons = {
   Logout: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>,
   ChevronLeft: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>,
   Menu: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" x2="21" y1="12" y2="12"/><line x1="3" x2="21" y1="6" y2="6"/><line x1="3" x2="21" y1="18" y2="18"/></svg>,
+  Close: () => <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>,
   Fullscreen: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
 };
 
@@ -70,6 +71,37 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ user, onL
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  useEffect(() => {
+    const body = document.body;
+    const previousOverflow = body.style.overflow;
+    if (isMobileMenuOpen) {
+      body.style.overflow = 'hidden';
+    } else {
+      body.style.overflow = previousOverflow || '';
+    }
+    return () => {
+      body.style.overflow = previousOverflow || '';
+    };
+  }, [isMobileMenuOpen]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 1024 && isMobileMenuOpen) {
+        setIsMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isMobileMenuOpen]);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsMobileMenuOpen(false);
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, []);
+
   const menuItems = [
     { v: View.HOME, l: 'Início', i: Icons.Home },
     { v: View.STUDENTS, l: 'Alunos', i: Icons.Users },
@@ -83,6 +115,9 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ user, onL
     setIsSidebarOpen(prev => !prev);
   };
 
+  const toggleMobileMenu = () => setIsMobileMenuOpen(prev => !prev);
+  const closeMobileMenu = () => setIsMobileMenuOpen(false);
+
   const toggleFullscreen = async () => {
     try {
       if (!document.fullscreenElement) {
@@ -92,6 +127,13 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ user, onL
       }
     } catch (error) {
       console.error('Erro ao alternar tela cheia', error);
+    }
+  };
+
+  const handleMenuSelect = (view: View) => {
+    setCurrentView(view);
+    if (window.innerWidth < 1024) {
+      closeMobileMenu();
     }
   };
 
@@ -116,7 +158,7 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ user, onL
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8 px-4 md:px-0">
                {menuItems.slice(1, 5).map((item, i) => (
-                  <button key={i} onClick={() => setCurrentView(item.v)} className="bg-white p-10 rounded-[3rem] shadow-premium hover:shadow-glow transition-all border border-brand-light/20 flex flex-col items-center gap-6 group">
+                  <button key={i} onClick={() => handleMenuSelect(item.v)} className="bg-white p-10 rounded-[3rem] shadow-premium hover:shadow-glow transition-all border border-brand-light/20 flex flex-col items-center gap-6 group">
                     <span className="text-brand-primary group-hover:scale-125 transition-transform"><item.i /></span>
                     <span className="text-[11px] font-black uppercase tracking-widest text-slate-700">{item.l}</span>
                   </button>
@@ -152,7 +194,7 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ user, onL
             {menuItems.map(item => (
               <button
                 key={item.v}
-                onClick={() => setCurrentView(item.v)}
+                onClick={() => handleMenuSelect(item.v)}
                 title={!isSidebarOpen ? item.l : undefined}
                 aria-label={item.l}
                 className={`w-full flex items-center gap-5 px-4 py-4 rounded-2xl font-black transition-all group ${currentView === item.v ? 'bg-brand-primary text-white shadow-glow' : 'text-slate-400 hover:bg-brand-bg hover:text-slate-800'}`}>
@@ -180,9 +222,56 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ user, onL
         </div>
       </aside>
 
+      <div className={`lg:hidden fixed inset-0 z-[120] transition-opacity duration-200 ${isMobileMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
+        <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={closeMobileMenu}></div>
+        <aside className={`absolute top-0 left-0 h-full w-[80vw] max-w-sm bg-white border-r border-brand-light/30 shadow-2xl flex flex-col p-6 transition-transform duration-200 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+          <div className="flex items-center justify-between mb-10">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-brand-primary rounded-2xl overflow-hidden shadow-glow border-2 border-white flex items-center justify-center shrink-0">
+                <img src="https://i.postimg.cc/WpmNkxhk/1000225330.jpg" alt="Logo" className="w-full h-full object-cover" />
+              </div>
+              <div>
+                <p className="text-lg font-black text-slate-800 leading-tight">FisioStudio</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-brand-dark/70">Pilates & Saúde</p>
+              </div>
+            </div>
+            <button onClick={closeMobileMenu} className="p-3 rounded-xl bg-brand-bg text-slate-500 hover:text-slate-800 hover:bg-brand-bg/80 transition-all">
+              <Icons.Close />
+            </button>
+          </div>
+          <nav className="flex-1 space-y-3 overflow-y-auto pr-2 -mr-2">
+            {menuItems.map(item => (
+              <button
+                key={item.v}
+                onClick={() => handleMenuSelect(item.v)}
+                className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl font-black transition-all ${currentView === item.v ? 'bg-brand-primary text-white shadow-glow' : 'text-slate-500 hover:bg-brand-bg hover:text-slate-800'}`}>
+                <span className="w-6 flex justify-center shrink-0"><item.i /></span>
+                <span className="text-sm tracking-wide">{item.l}</span>
+              </button>
+            ))}
+          </nav>
+          <button onClick={onLogout} className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl font-black text-red-400 hover:bg-red-50 transition-all mt-6">
+              <Icons.Logout /> <span className="text-sm">Sair</span>
+          </button>
+        </aside>
+      </div>
+
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        <header className="h-24 bg-brand-bg/80 backdrop-blur-3xl border-b border-brand-light/30 flex items-center px-14 shrink-0 z-[90]">
-          <button onClick={() => setIsMobileMenuOpen(true)} className="lg:hidden p-3 bg-white shadow-premium rounded-xl text-brand-primary mr-4"><Icons.Menu /></button>
+        <header className="h-24 bg-brand-bg/80 backdrop-blur-3xl border-b border-brand-light/30 flex items-center px-6 md:px-10 lg:px-14 shrink-0 z-[90]">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <button onClick={toggleMobileMenu} className="lg:hidden p-3 bg-white shadow-premium rounded-xl text-brand-primary" aria-label={isMobileMenuOpen ? 'Fechar menu' : 'Abrir menu'}>
+              {isMobileMenuOpen ? <Icons.Close /> : <Icons.Menu />}
+            </button>
+            <div className="flex items-center gap-3 lg:hidden">
+              <div className="w-10 h-10 rounded-xl bg-brand-primary shadow-glow border-2 border-white overflow-hidden">
+                <img src="https://i.postimg.cc/WpmNkxhk/1000225330.jpg" alt="Logo" className="w-full h-full object-cover" />
+              </div>
+              <div className="leading-none">
+                <p className="text-sm font-black text-slate-800">FisioStudio</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-brand-dark/70">Gestão</p>
+              </div>
+            </div>
+          </div>
           <div className="flex items-center gap-4 ml-auto">
             <button
               type="button"
@@ -205,7 +294,7 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ user, onL
             </div>
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-10 custom-scrollbar relative">
+        <main className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar relative">
           <div className="max-w-[1400px] mx-auto w-full min-h-full">
             {renderContent()}
           </div>
