@@ -38,8 +38,14 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ user, onL
   const [currentView, setCurrentView] = useState<View>(View.HOME);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const sidebarStorageKey = 'fs_sidebar_collapsed';
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const stored = localStorage.getItem(sidebarStorageKey);
+    return stored === 'true' ? false : true;
+  });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => typeof document !== 'undefined' && Boolean(document.fullscreenElement));
   const [totalStudents, setTotalStudents] = useState(0);
 
   useEffect(() => {
@@ -51,6 +57,19 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ user, onL
     return db.onUpdate?.(fetchStats);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(sidebarStorageKey, (!isSidebarOpen).toString());
+  }, [isSidebarOpen]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
   const menuItems = [
     { v: View.HOME, l: 'Início', i: Icons.Home },
     { v: View.STUDENTS, l: 'Alunos', i: Icons.Users },
@@ -59,6 +78,22 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ user, onL
     { v: View.REPORTS, l: 'Relatórios', i: Icons.Chart },
     { v: View.SETTINGS, l: 'Configurações', i: Icons.Settings }
   ];
+
+  const toggleSidebar = () => {
+    setIsSidebarOpen(prev => !prev);
+  };
+
+  const toggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch (error) {
+      console.error('Erro ao alternar tela cheia', error);
+    }
+  };
 
   const renderContent = () => {
     switch (currentView) {
@@ -103,22 +138,42 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ user, onL
 
   return (
     <div className="flex h-full w-full bg-brand-bg overflow-hidden">
-      <aside className={`hidden lg:flex flex-col h-full bg-white border-r border-brand-light/30 transition-all duration-300 z-[100] ${isSidebarOpen ? 'w-72 shadow-2xl' : 'w-24 shadow-lg'}`}>
+      <aside className={`hidden lg:flex flex-col h-full bg-white border-r border-brand-light/30 transition-all duration-200 z-[100] ${isSidebarOpen ? 'w-72 shadow-2xl' : 'w-24 shadow-lg'}`}>
         <div className="flex-1 flex flex-col p-6 overflow-hidden">
           <div className="flex items-center gap-4 mb-14 shrink-0 h-12">
             <div className="w-12 h-12 bg-brand-primary rounded-2xl overflow-hidden shadow-glow border-2 border-white flex items-center justify-center shrink-0">
               <img src="https://i.postimg.cc/WpmNkxhk/1000225330.jpg" alt="Logo" className="w-full h-full object-cover" />
             </div>
-            {isSidebarOpen && <h1 className="text-xl font-black tracking-tighter text-slate-800 uppercase">FisioStudio</h1>}
+            <span className={`text-xl font-black tracking-tighter text-slate-800 uppercase transition-[opacity,transform] duration-200 origin-left ${isSidebarOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-2 pointer-events-none'}`}>
+              FisioStudio
+            </span>
           </div>
           <nav className="flex-1 space-y-3">
             {menuItems.map(item => (
-              <button key={item.v} onClick={() => setCurrentView(item.v)} className={`w-full flex items-center gap-5 px-4 py-4 rounded-2xl font-black transition-all group ${currentView === item.v ? 'bg-brand-primary text-white shadow-glow' : 'text-slate-400 hover:bg-brand-bg hover:text-slate-800'}`}>
-                <span className={`w-6 flex justify-center shrink-0 ${isSidebarOpen ? '' : 'mx-auto'}`}><item.i /></span>
-                {isSidebarOpen && <span className="text-sm tracking-wide">{item.l}</span>}
+              <button
+                key={item.v}
+                onClick={() => setCurrentView(item.v)}
+                title={!isSidebarOpen ? item.l : undefined}
+                aria-label={item.l}
+                className={`w-full flex items-center gap-5 px-4 py-4 rounded-2xl font-black transition-all group ${currentView === item.v ? 'bg-brand-primary text-white shadow-glow' : 'text-slate-400 hover:bg-brand-bg hover:text-slate-800'}`}>
+                <span className={`w-6 flex justify-center shrink-0 transition-transform duration-200 ${isSidebarOpen ? '' : 'mx-auto'}`}><item.i /></span>
+                <span className={`text-sm tracking-wide whitespace-nowrap transition-[opacity,transform] duration-200 origin-left ${isSidebarOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-2 pointer-events-none'}`}>
+                  {item.l}
+                </span>
               </button>
             ))}
           </nav>
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            title={isSidebarOpen ? 'Recolher menu' : 'Expandir menu'}
+            aria-pressed={!isSidebarOpen}
+            className="w-full flex items-center gap-4 px-4 py-3 rounded-2xl font-black text-slate-500 hover:text-slate-800 hover:bg-brand-bg transition-all mb-3">
+              <span className={`w-6 flex justify-center shrink-0 transition-transform duration-200 ${isSidebarOpen ? '' : 'rotate-180'}`}><Icons.ChevronLeft /></span>
+              <span className={`text-sm tracking-wide whitespace-nowrap transition-[opacity,transform] duration-200 origin-left ${isSidebarOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-2 pointer-events-none'}`}>
+                {isSidebarOpen ? 'Recolher' : 'Expandir'}
+              </span>
+          </button>
           <button onClick={onLogout} className="w-full flex items-center gap-5 px-4 py-4 rounded-2xl font-black text-red-400 hover:bg-red-50 transition-all mt-auto">
               <Icons.Logout /> {isSidebarOpen && <span className="text-sm">Sair</span>}
           </button>
@@ -128,13 +183,25 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ user, onL
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         <header className="h-24 bg-brand-bg/80 backdrop-blur-3xl border-b border-brand-light/30 flex items-center px-14 shrink-0 z-[90]">
           <button onClick={() => setIsMobileMenuOpen(true)} className="lg:hidden p-3 bg-white shadow-premium rounded-xl text-brand-primary mr-4"><Icons.Menu /></button>
-          <div className="flex items-center gap-6 ml-auto">
+          <div className="flex items-center gap-4 ml-auto">
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              className="inline-flex items-center gap-2 px-3 sm:px-4 py-3 bg-white border border-brand-light/40 rounded-2xl shadow-premium text-brand-primary hover:shadow-glow transition-all"
+              title={isFullscreen ? 'Sair da tela cheia' : 'Entrar em tela cheia'}>
+              <Icons.Fullscreen />
+              <span className="hidden sm:inline text-[11px] font-black uppercase tracking-widest">
+                {isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
+              </span>
+            </button>
+            <div className="flex items-center gap-6">
              <div className="text-right hidden sm:block">
               <p className="text-base font-black text-slate-800 tracking-tight leading-none mb-1">{user.name}</p>
               <p className="text-[10px] font-black uppercase text-brand-dark tracking-widest opacity-60">Admin — {totalStudents} ALUNOS</p>
             </div>
             <div className="w-12 h-12 rounded-2xl bg-brand-primary shadow-glow border-2 border-white overflow-hidden">
                <img src="https://i.postimg.cc/WpmNkxhk/1000225330.jpg" alt="Profile" className="w-full h-full object-cover" />
+            </div>
             </div>
           </div>
         </header>
