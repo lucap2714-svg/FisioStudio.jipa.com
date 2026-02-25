@@ -156,13 +156,11 @@ const AddStudentModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onCl
 
     setIsSubmitting(true);
     try {
-      const studentId = db.generateId();
-      const newStudent: Student = {
-        id: studentId,
-        name: name.trim(), 
-        phone: phone.trim(), 
+      await db.createStudent({
+        name: name.trim(),
+        phone: phone.trim(),
         studentType,
-        active: true, 
+        active: true,
         role: UserRole.STUDENT,
         weeklyDays: Array.from(new Set(schedule.map(s => s.day))),
         weeklySchedule: schedule,
@@ -170,9 +168,8 @@ const AddStudentModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onCl
         fixedDueDay: 10,
         fixedMonthlyFee: 250,
         wellhubEligibilityStatus: 'ATIVO'
-      };
+      });
       
-      await db.saveStudent(newStudent);
       setSuccessMsg("Dados salvos com sucesso!");
       
       setTimeout(() => {
@@ -265,14 +262,14 @@ const EditStudentModal = ({ isOpen, onClose, student, onSuccess }: { isOpen: boo
     try {
       const updatedStudent: Student = {
         ...student,
-        name: name.trim(), 
-        phone: phone.trim(), 
+        name: name.trim(),
+        phone: phone.trim(),
         studentType,
         weeklyDays: Array.from(new Set(schedule.map(s => s.day))),
         weeklySchedule: schedule
       };
       
-      await db.saveStudent(updatedStudent);
+      await db.updateStudent(updatedStudent);
       setSuccessMsg("Dados atualizados com sucesso!");
       
       setTimeout(() => {
@@ -370,7 +367,7 @@ export default function StudentsList({ onOpenAssessment, onOpenTrainingPlan }: S
     const student = students.find(s => s.id === studentId);
     if (student) {
       const updatedStudent = { ...student, billingStatus: status };
-      await db.saveStudent(updatedStudent);
+      await db.updateStudent(updatedStudent);
       await loadStudents();
       setStatusChangeStudentId(null);
       setOpenMenuId(null);

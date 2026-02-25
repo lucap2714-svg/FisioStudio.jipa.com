@@ -259,7 +259,10 @@ export default function ClassesList({ onSelectClass, onOpenStudentProfile, onOpe
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { 
+    loadData(); 
+    return db.onUpdate?.(loadData);
+  }, [loadData]);
 
   const plannerData = useMemo(() => {
     const todayStr = DateUtils.normalize();

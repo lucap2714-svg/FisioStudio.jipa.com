@@ -41,6 +41,8 @@ export const kioskSessionsService = {
     if (error) throw error;
     if (!data || data.length === 0) return null;
 
+    console.debug(`[Kiosk][Supabase] Sessão ativa consultada (${nowIso}) -> ${data.length} encontrada(s).`);
+
     const session = data[0];
     return {
       id: String(session.id),
@@ -74,6 +76,7 @@ export const kioskSessionsService = {
       .order('created_at', { ascending: true });
 
     if (error) throw error;
+    console.debug(`[Kiosk][Supabase] Alunos da sessão ${sessionId}: ${data?.length || 0}`);
 
     return (data || [])
       .map((row: any) => ({
@@ -100,4 +103,3 @@ export const kioskSessionsService = {
     return confirmedAt;
   },
 };
-

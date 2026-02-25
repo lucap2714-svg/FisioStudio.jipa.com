@@ -1,7 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
-import { AppSettings, BackupRecord, Student, RestoreResult } from '../types';
+import { syncService, SyncResult } from '../services/syncService';
+import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { AppSettings, BackupRecord, RestoreResult } from '../types';
 import { INITIAL_SETTINGS } from '../constants';
 
 const Icons = {
@@ -21,6 +23,10 @@ export default function SettingsView() {
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [lastSync, setLastSync] = useState<string | null>(null);
   
   const [isRestoreModalOpen, setIsRestoreModalOpen] = useState(false);
   const [restoreUnderstood, setRestoreUnderstood] = useState(false);
@@ -35,12 +41,32 @@ export default function SettingsView() {
       setLoading(false);
     };
     loadSettings();
+    setLastSync(syncService.getLastSyncAt());
   }, []);
 
   const handleSave = async () => {
     await db.saveSettings(settings);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    setSyncError(null);
+    try {
+      const result = await syncService.syncAll({ mode: 'studentsOnly' });
+      setSyncResult(result);
+      setLastSync(result.lastSyncAt);
+      if (result.errors.length > 0) {
+        setSyncError(result.errors.join(' | '));
+      } else {
+        setSyncError(null);
+      }
+    } catch (e: any) {
+      setSyncError(e?.message || 'Falha ao sincronizar com o Supabase.');
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const handleRunRestore = async () => {
@@ -57,6 +83,9 @@ export default function SettingsView() {
     }
   };
 
+  const lastSyncLabel = lastSync ? new Date(lastSync).toLocaleString('pt-BR') : 'Nunca';
+  const envStatus = isSupabaseConfigured ? 'Credenciais OK' : 'Chaves ausentes';
+
   if (loading) return <div className="p-10 text-center animate-pulse">Carregando...</div>;
 
   return (
@@ -69,6 +98,60 @@ export default function SettingsView() {
         {saved && (
           <div className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest animate-in flex items-center gap-2">
             <Icons.Check /> Alterações Salvas
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-[3rem] shadow-premium border border-brand-light/30 p-8 md:p-10 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h3 className="font-black text-slate-800 uppercase tracking-widest text-[11px] flex items-center gap-2">
+              <span className="w-1.5 h-6 bg-brand-primary rounded-full"></span>
+              Sincronizar com Supabase
+            </h3>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+              Fonte de verdade: Supabase (tabela students) — {envStatus}
+            </p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+              Última sincronização: {lastSyncLabel}
+            </p>
+          </div>
+          <button
+            onClick={handleSync}
+            disabled={syncing || !isSupabaseConfigured}
+            className={`px-6 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-glow transition-all ${
+              isSupabaseConfigured ? 'bg-brand-primary text-white hover:bg-brand-dark' : 'bg-slate-200 text-slate-500'
+            } ${syncing ? 'opacity-70' : ''}`}
+          >
+            {syncing ? 'Sincronizando...' : 'Sincronizar agora'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="p-4 rounded-2xl border border-brand-light/40 bg-brand-bg/30">
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Alunos sincronizados</p>
+            <p className="text-2xl font-black text-slate-800">{syncResult?.studentsCount ?? '—'}</p>
+          </div>
+          <div className="p-4 rounded-2xl border border-brand-light/40 bg-brand-bg/30">
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Pendências enviadas</p>
+            <p className="text-2xl font-black text-slate-800">{syncResult?.pushed ?? 0}</p>
+          </div>
+          <div className="p-4 rounded-2xl border border-brand-light/40 bg-brand-bg/30">
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Status</p>
+            <p className={`text-sm font-black ${syncError ? 'text-red-600' : 'text-emerald-700'}`}>
+              {syncError ? 'Erro' : 'Pronto'}
+            </p>
+          </div>
+        </div>
+
+        {syncError && (
+          <div className="bg-red-50 border border-red-100 text-red-700 text-[10px] font-black uppercase tracking-widest px-4 py-3 rounded-2xl">
+            {syncError}
+          </div>
+        )}
+        {syncResult && !syncError && (
+          <div className="bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-widest px-4 py-3 rounded-2xl">
+            Sincronização concluída em {new Date(syncResult.lastSyncAt).toLocaleString('pt-BR')}
           </div>
         )}
       </div>

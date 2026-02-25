@@ -4,7 +4,7 @@ import {
   EvolutionStatus, AttendanceStatus, TrainingPlan, Assessment, BillingEvent, BillingStatus,
   BackupRecord, UserRole, RestoreResult, AuditLog
 } from '../types';
-import { INITIAL_SETTINGS, MOCK_STUDENTS } from '../constants';
+import { INITIAL_SETTINGS } from '../constants';
 import { studentsService } from './studentsService';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
@@ -41,6 +41,7 @@ class Database {
     this.initPromise = this.initDB();
     syncChannel.onmessage = (e) => {
       if (e.data.type === 'DATA_UPDATED') {
+        studentsService.invalidateCache?.();
         this.updateListeners.forEach(l => l());
       }
     };
@@ -49,6 +50,7 @@ class Database {
       supabase
         .channel('public:students')
         .on('postgres_changes', { event: '*', table: 'students' }, () => {
+          studentsService.invalidateCache?.();
           this.updateListeners.forEach(l => l());
         })
         .subscribe();
@@ -85,7 +87,7 @@ class Database {
     if (data && data.classes) return;
 
     const initial: any = {
-        students: MOCK_STUDENTS, // Agora inicia com dados de exemplo se estiver vazio
+        students: [],
         classes: [],
         bookings: [],
         evolutions: [],
@@ -156,14 +158,38 @@ class Database {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   }
 
-  // --- STUDENT METHODS ---
-  async getStudents(): Promise<Student[]> {
-    return await studentsService.list();
+  emitUpdate() {
+    this.updateListeners.forEach((l) => l());
   }
 
+  // --- STUDENT METHODS ---
+  async getStudents(forceRefresh = false): Promise<Student[]> {
+    const origin = forceRefresh ? 'refetch' : 'cache-first';
+    const students = await studentsService.listStudents({ forceRefresh, allowCache: !forceRefresh });
+    console.debug(`[DB] getStudents (${origin}) -> ${students.length} registros.`);
+    return students;
+  }
+
+  async createStudent(student: Partial<Student>): Promise<Student> {
+    const created = await studentsService.createStudent(student);
+    this.emitUpdate();
+    return created;
+  }
+
+  async updateStudent(student: Partial<Student> & { id: string }): Promise<Student> {
+    const updated = await studentsService.updateStudent(student.id, student);
+    this.emitUpdate();
+    return updated;
+  }
+
+  async deleteStudent(id: string): Promise<void> {
+    await studentsService.deleteStudent(id);
+    this.emitUpdate();
+  }
+
+  // Compatibilidade legada
   async saveStudent(student: Student): Promise<void> {
-    await studentsService.update(student.id, student);
-    this.updateListeners.forEach(l => l());
+    await this.updateStudent(student);
   }
 
   /**
@@ -175,7 +201,7 @@ class Database {
     const errors: string[] = [];
 
     try {
-      const currentStudents = await studentsService.list();
+      const currentStudents = await studentsService.listStudents({ forceRefresh: true, allowCache: false });
       const phoneMap = new Map();
       const nameMap = new Map();
 
@@ -194,7 +220,7 @@ class Database {
           if (!existing) existing = nameMap.get(itemName);
 
           if (existing) {
-            await studentsService.update(existing.id, {
+            await studentsService.updateStudent(existing.id, {
               name: item.name,
               phone: item.phone,
               studentType: item.studentType,
@@ -203,7 +229,7 @@ class Database {
             });
             updatedCount++;
           } else {
-            await studentsService.create({
+            await studentsService.createStudent({
               name: item.name,
               phone: item.phone,
               studentType: item.studentType,
@@ -221,8 +247,8 @@ class Database {
       errors.push(`Erro Global: ${globalErr.message}`);
     }
     
-    this.updateListeners.forEach(l => l());
-    const finalStudents = await studentsService.list();
+    this.emitUpdate();
+    const finalStudents = await studentsService.listStudents({ forceRefresh: true, allowCache: false });
 
     return { 
       createdCount, 
@@ -381,7 +407,14 @@ class Database {
   }
 
   async getExportData() {
-    return await this.getRawDataInternal();
+    const base = await this.getRawDataInternal();
+    try {
+      const cloudStudents = await studentsService.listStudents({ forceRefresh: true });
+      return { ...base, students: cloudStudents };
+    } catch (e) {
+      console.warn('[Export] Falha ao carregar alunos do Supabase, usando snapshot local.', e);
+      return base;
+    }
   }
 }
 
