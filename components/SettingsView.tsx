@@ -5,6 +5,7 @@ import { syncService, SyncResult } from '../services/syncService';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { AppSettings, BackupRecord, RestoreResult } from '../types';
 import { INITIAL_SETTINGS } from '../constants';
+import { studentsService } from '../services/studentsService';
 
 const Icons = {
   Backup: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v8"/><path d="m16 6-4 4-4-4"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h.01"/><path d="M10 18h.01"/></svg>,
@@ -27,11 +28,27 @@ export default function SettingsView() {
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const [pendingQueue, setPendingQueue] = useState<number>(studentsService.getPendingChanges().length);
+  const [syncSuccessMessage, setSyncSuccessMessage] = useState<string | null>(null);
+  const [cloudCounts, setCloudCounts] = useState<{ total: number; active: number } | null>(null);
   
   const [isRestoreModalOpen, setIsRestoreModalOpen] = useState(false);
   const [restoreUnderstood, setRestoreUnderstood] = useState(false);
   const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
+
+  const refreshCloudCounts = async () => {
+    if (!isSupabaseConfigured) return;
+    try {
+      const students = await studentsService.listStudents({ forceRefresh: true, allowCache: false });
+      setCloudCounts({
+        total: students.length,
+        active: students.filter(s => s.active).length,
+      });
+    } catch (e) {
+      console.warn('[Settings][Sync] Falha ao ler contagem do Supabase', e);
+    }
+  };
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -39,6 +56,9 @@ export default function SettingsView() {
       setSettings(s);
       setBackups(b);
       setLoading(false);
+      if (isSupabaseConfigured) {
+        await refreshCloudCounts();
+      }
     };
     loadSettings();
     setLastSync(syncService.getLastSyncAt());
@@ -53,18 +73,30 @@ export default function SettingsView() {
   const handleSync = async () => {
     setSyncing(true);
     setSyncError(null);
+    setSyncSuccessMessage(null);
     try {
       const result = await syncService.syncAll({ mode: 'studentsOnly' });
       setSyncResult(result);
       setLastSync(result.lastSyncAt);
+      setCloudCounts({ total: result.studentsCount, active: result.activeCount });
+      setPendingQueue(result.pendingAfter);
+      const successMessage = `Enviados: ${result.pushed} • Baixados: ${result.pulled} • Total: ${result.studentsCount}`;
       if (result.errors.length > 0) {
         setSyncError(result.errors.join(' | '));
+        setSyncSuccessMessage(null);
       } else {
         setSyncError(null);
+        setSyncSuccessMessage(successMessage);
+        try {
+          alert(`Sincronizado com sucesso. ${successMessage}`);
+        } catch (alertErr) {
+          console.debug('[Settings][Sync] Toast/alert indisponível', alertErr);
+        }
       }
     } catch (e: any) {
       setSyncError(e?.message || 'Falha ao sincronizar com o Supabase.');
     } finally {
+      setPendingQueue(studentsService.getPendingChanges().length);
       setSyncing(false);
     }
   };
@@ -129,18 +161,29 @@ export default function SettingsView() {
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="p-4 rounded-2xl border border-brand-light/40 bg-brand-bg/30">
-            <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Alunos sincronizados</p>
-            <p className="text-2xl font-black text-slate-800">{syncResult?.studentsCount ?? '—'}</p>
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Alunos ativos (Supabase)</p>
+            <p className="text-2xl font-black text-slate-800">{cloudCounts?.active ?? syncResult?.activeCount ?? '—'}</p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+              Total retornado: {cloudCounts?.total ?? syncResult?.pulled ?? '—'}
+            </p>
           </div>
           <div className="p-4 rounded-2xl border border-brand-light/40 bg-brand-bg/30">
-            <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Pendências enviadas</p>
-            <p className="text-2xl font-black text-slate-800">{syncResult?.pushed ?? 0}</p>
+            <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Pendências na fila</p>
+            <p className="text-2xl font-black text-slate-800">{pendingQueue}</p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+              Enviadas agora: {syncResult?.pushed ?? 0}
+            </p>
           </div>
           <div className="p-4 rounded-2xl border border-brand-light/40 bg-brand-bg/30">
             <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Status</p>
             <p className={`text-sm font-black ${syncError ? 'text-red-600' : 'text-emerald-700'}`}>
               {syncError ? 'Erro' : 'Pronto'}
             </p>
+            {syncResult && (
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                {syncError ? 'Verifique o log' : 'Sincronizado'}
+              </p>
+            )}
           </div>
         </div>
 
@@ -151,7 +194,7 @@ export default function SettingsView() {
         )}
         {syncResult && !syncError && (
           <div className="bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-widest px-4 py-3 rounded-2xl">
-            Sincronização concluída em {new Date(syncResult.lastSyncAt).toLocaleString('pt-BR')}
+            Sincronização concluída em {new Date(syncResult.lastSyncAt).toLocaleString('pt-BR')} • {syncSuccessMessage || `Total: ${syncResult.studentsCount}`}
           </div>
         )}
       </div>

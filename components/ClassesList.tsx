@@ -25,6 +25,41 @@ const Icons = {
   Magic: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.21 1.21 0 0 0 1.72 0L21.64 5.36a1.21 1.21 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v1"/><path d="M11 2v2"/><path d="M15 2v2"/><path d="M20 8h2"/><path d="M20 12h2"/><path d="M11 22v-2"/><path d="M15 22v-2"/></svg>
 };
 
+const normalizeText = (value: string = '') =>
+  value
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+
+const normalizeDay = (value: string = '') => normalizeText(value);
+
+const normalizeTimeSlot = (value: string = '') => {
+  const digits = value.replace(/\D/g, '');
+  if (!digits) return '';
+  const hours = digits.slice(0, 2) || '00';
+  const minutes = (digits.slice(2, 4) || '00').padEnd(2, '0');
+  const h = Math.min(23, parseInt(hours, 10));
+  const m = Math.min(59, parseInt(minutes, 10));
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+const slotMatches = (weeklySchedule: any, targetDay: string, targetTime: string) => {
+  const normalizedDay = normalizeDay(targetDay);
+  const normalizedTime = normalizeTimeSlot(targetTime);
+  if (!normalizedDay || !normalizedTime) return false;
+  const schedule = Array.isArray(weeklySchedule) ? weeklySchedule : [];
+  return schedule.some(sc => normalizeDay(sc.day) === normalizedDay && normalizeTimeSlot(sc.time) === normalizedTime);
+};
+
+const getSuggestedStudents = (students: Student[], targetDay: string, targetTime: string) => {
+  const normalizedDay = normalizeDay(targetDay);
+  const normalizedTime = normalizeTimeSlot(targetTime);
+  if (!normalizedDay || !normalizedTime) return [];
+  return students.filter(s => s.active && slotMatches(s.weeklySchedule, normalizedDay, normalizedTime));
+};
+
 const ModalCloseButton = ({ onClick }: { onClick: () => void }) => (
   <button 
     onClick={onClick} 
@@ -49,19 +84,24 @@ const AddClassModal = ({ isOpen, onClose, students, onClassCreated }: { isOpen: 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const targetDay = useMemo(() => {
+    try {
+      return normalizeText(DateUtils.getDayName(new Date(`${date}T12:00:00`)));
+    } catch {
+      return '';
+    }
+  }, [date]);
+  const targetTime = useMemo(() => normalizeTimeSlot(time), [time]);
 
   // Lógica de sugestão automática baseada na grade semanal
   const suggestedStudents = useMemo(() => {
-    try {
-      const dayName = DateUtils.getDayName(new Date(date + 'T12:00:00'));
-      return students.filter(s => 
-        s.active && 
-        s.weeklySchedule.some(sc => sc.day === dayName && sc.time === time)
-      );
-    } catch (e) {
-      return [];
-    }
-  }, [date, time, students]);
+    return getSuggestedStudents(students, targetDay, targetTime);
+  }, [students, targetDay, targetTime]);
+
+  useEffect(() => {
+    if (!targetDay || !targetTime) return;
+    console.debug(`[Agenda][Sugestões] dia=${targetDay} horário=${targetTime} total=${students.length} sugeridos=${suggestedStudents.length}`);
+  }, [targetDay, targetTime, students.length, suggestedStudents.length]);
 
   // Auto-selecionar quando mudar o horário se for nova sessão
   useEffect(() => {
@@ -207,7 +247,7 @@ const AddClassModal = ({ isOpen, onClose, students, onClassCreated }: { isOpen: 
                   <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center ${selectedStudentIds.includes(s.id) ? 'bg-brand-primary border-brand-primary' : 'bg-white border-brand-light'}`}>{selectedStudentIds.includes(s.id) && <Icons.Check />}</div>
                   <div className="text-left">
                     <span className="font-bold text-slate-700 text-sm block">{s.name}</span>
-                    {s.weeklySchedule.some(sc => sc.time === time) && (
+                    {slotMatches(s.weeklySchedule, targetDay, targetTime) && (
                       <span className="text-[8px] font-black text-brand-primary uppercase tracking-widest mt-0.5 block">Possui horário fixo neste slot</span>
                     )}
                   </div>
@@ -246,11 +286,13 @@ export default function ClassesList({ onSelectClass, onOpenStudentProfile, onOpe
   const [absenceReason, setAbsenceReason] = useState('');
   const [absenceErrors, setAbsenceErrors] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (forceStudentsRefresh: boolean = true) => {
     setLoading(true);
     try {
       const [allClasses, allStudents, allBookings] = await Promise.all([
-        db.getClasses(), db.getStudents(), db.getBookings()
+        db.getClasses(),
+        db.getStudents(forceStudentsRefresh),
+        db.getBookings()
       ]);
       setClasses(allClasses);
       setStudents(allStudents.filter(s => s.active));

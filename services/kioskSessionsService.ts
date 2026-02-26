@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+﻿import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 export interface KioskSession {
   id: string;
@@ -15,6 +15,7 @@ export interface KioskSessionStudent {
   status: string;
   confirmed_at: string | null;
   full_name: string;
+  phone?: string;
 }
 
 const ensureSupabase = () => {
@@ -41,9 +42,10 @@ export const kioskSessionsService = {
     if (error) throw error;
     if (!data || data.length === 0) return null;
 
-    console.debug(`[Kiosk][Supabase] Sessão ativa consultada (${nowIso}) -> ${data.length} encontrada(s).`);
+    console.debug(`[Kiosk][Supabase] Active session lookup at ${nowIso} -> ${data.length} hit(s).`);
 
     const session = data[0];
+    console.debug(`[Kiosk][Supabase] Active session id=${session.id} window ${session.start_at} - ${session.end_at}`);
     return {
       id: String(session.id),
       title: session.title,
@@ -55,6 +57,9 @@ export const kioskSessionsService = {
 
   async getSessionStudents(sessionId: string): Promise<KioskSessionStudent[]> {
     ensureSupabase();
+    if (!sessionId) {
+      throw new Error('Sessão ativa não encontrada para carregar alunos.');
+    }
 
     const { data, error } = await supabase
       .from('kiosk_session_students')
@@ -66,19 +71,24 @@ export const kioskSessionsService = {
           status,
           confirmed_at,
           created_at,
-          students (
+          students!inner (
             id,
-            full_name
+            full_name,
+            phone,
+            active
           )
         `
       )
       .eq('session_id', sessionId)
+      .eq('students.active', true)
       .order('created_at', { ascending: true });
 
     if (error) throw error;
-    console.debug(`[Kiosk][Supabase] Alunos da sessão ${sessionId}: ${data?.length || 0}`);
+    const rawCount = data?.length || 0;
+    const filtered = (data || []).filter((row: any) => row?.students && row.students.active !== false);
+    console.debug(`[Kiosk][Supabase] session=${sessionId} kiosk_session_students raw=${rawCount} filtered=${filtered.length}`);
 
-    return (data || [])
+    return filtered
       .map((row: any) => ({
         id: String(row.id),
         session_id: String(row.session_id),
@@ -86,6 +96,7 @@ export const kioskSessionsService = {
         status: row.status || 'scheduled',
         confirmed_at: row.confirmed_at || null,
         full_name: row.students?.full_name || 'Aluno',
+        phone: row.students?.phone || undefined,
       }))
       .sort((a, b) => a.full_name.localeCompare(b.full_name, 'pt-BR'));
   },

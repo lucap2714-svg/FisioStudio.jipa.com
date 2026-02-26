@@ -167,8 +167,7 @@ async function createStudent(payload: Partial<Student>): Promise<Student> {
   }
 
   const student = mapFromDb(data);
-  const cached = readCache();
-  if (cached) writeCache([student, ...cached.data.filter((s) => s.id !== student.id)]);
+  clearCache();
   console.debug(`[Supabase][Students] Criado no Supabase: ${student.id} (${student.name}).`);
   return student;
 }
@@ -190,10 +189,7 @@ async function updateStudent(id: string, payload: Partial<Student>): Promise<Stu
   }
 
   const student = mapFromDb(data);
-  const cached = readCache();
-  if (cached) {
-    writeCache(cached.data.map((s) => (s.id === student.id ? student : s)));
-  }
+  clearCache();
   console.debug(`[Supabase][Students] Atualizado: ${student.id} (${student.name}).`);
   return student;
 }
@@ -209,8 +205,7 @@ async function deleteStudent(id: string): Promise<void> {
     console.error('[Supabase][Students] Erro no DELETE:', error);
     throw new Error(`Não foi possível remover o aluno: ${annotateError(error.message)}`);
   }
-  const cached = readCache();
-  if (cached) writeCache(cached.data.filter((s) => s.id !== `s-${numericId}`));
+  clearCache();
   console.debug(`[Supabase][Students] Removido: s-${numericId}.`);
 }
 
@@ -240,6 +235,10 @@ async function pushPendingChanges(): Promise<{ pushed: number; errors: string[] 
   }
 
   writePending(stillPending);
+
+  if (pushed > 0) {
+    clearCache();
+  }
 
   return { pushed, errors };
 }

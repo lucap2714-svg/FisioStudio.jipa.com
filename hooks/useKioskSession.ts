@@ -26,6 +26,7 @@ export const useKioskSession = (): UseKioskSessionResult => {
       const activeSession = await kioskSessionsService.getActiveSession();
 
       if (!activeSession) {
+        console.debug('[Kiosk][Hook] Nenhuma sessao ativa encontrada.');
         setSession(null);
         setStudents([]);
         setLoading(false);
@@ -34,15 +35,16 @@ export const useKioskSession = (): UseKioskSessionResult => {
       }
 
       const attendees = await kioskSessionsService.getSessionStudents(activeSession.id);
+      console.debug(`[Kiosk][Hook] Sessao ${activeSession.id} retornou ${attendees.length} alunos vinculados.`);
       setSession(activeSession);
       setStudents(attendees);
       setLoading(false);
       setLastSync(new Date());
     } catch (e: any) {
-      console.error('[Kiosk] Falha ao atualizar sessão ativa', e);
+      console.error('[Kiosk] Falha ao atualizar sessao ativa', e);
       setSession(null);
       setStudents([]);
-      setError(e?.message || 'Não foi possível carregar a sessão ativa.');
+      setError(e?.message || 'Nao foi possivel carregar a sessao ativa.');
       setLoading(false);
     }
   }, []);
@@ -75,4 +77,3 @@ export const useKioskSession = (): UseKioskSessionResult => {
     confirmAttendance,
   }), [session, students, loading, error, lastSync, refresh, confirmAttendance]);
 };
-

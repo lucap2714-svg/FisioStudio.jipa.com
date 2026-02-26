@@ -6,7 +6,11 @@ const LAST_SYNC_KEY = 'fisiostudio_last_sync_at';
 
 export interface SyncResult {
   studentsCount: number;
+  activeCount: number;
+  pulled: number;
   pushed: number;
+  pendingBefore: number;
+  pendingAfter: number;
   errors: string[];
   lastSyncAt: string;
 }
@@ -17,7 +21,9 @@ export const syncService = {
       throw new Error('Supabase não configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.');
     }
 
+    const pendingBefore = studentsService.getPendingChanges().length;
     const pushResult = await studentsService.pushPendingChanges();
+    studentsService.invalidateCache?.();
     const students = await studentsService.listStudents({ forceRefresh: true, allowCache: false });
     const lastSyncAt = new Date().toISOString();
 
@@ -29,7 +35,11 @@ export const syncService = {
 
     return {
       studentsCount: students.length,
+      activeCount: students.filter((s) => s.active).length,
+      pulled: students.length,
       pushed: pushResult.pushed,
+      pendingBefore,
+      pendingAfter: studentsService.getPendingChanges().length,
       errors: pushResult.errors,
       lastSyncAt,
     };

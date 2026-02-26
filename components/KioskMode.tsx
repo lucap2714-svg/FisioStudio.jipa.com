@@ -67,6 +67,10 @@ export default function KioskMode({ onExit }: KioskModeProps) {
       .filter(student => !term || student.full_name.toLowerCase().includes(term));
   }, [students, searchTerm]);
 
+  useEffect(() => {
+    console.debug(`[Kiosk][UI] Lista exibida: ${currentStudentsList.length} alunos (filtro="${searchTerm.trim() || '—'}").`);
+  }, [currentStudentsList, searchTerm]);
+
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen();
     else if (document.exitFullscreen) document.exitFullscreen();
