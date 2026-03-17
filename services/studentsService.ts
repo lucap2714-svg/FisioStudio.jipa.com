@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { supabase, isSupabaseConfigured, supabaseHost } from '../lib/supabaseClient';
 import { BillingStatus, Student, StudentSchedule, StudentType, UserRole } from '../types';
 
 const CACHE_KEY = 'students_cache_v1';
@@ -158,12 +158,39 @@ async function listStudents(options: { forceRefresh?: boolean; allowCache?: bool
 
   const { forceRefresh = false, allowCache = true } = options;
 
+  console.info(
+    `[Supabase][Students] list() table=students filter=active=true host=${supabaseHost} configured=${isSupabaseConfigured}`
+  );
+
   if (!forceRefresh && allowCache) {
     const cached = readCache();
     if (cached) {
       console.debug(`[Supabase][Students] Usando cache local (${cached.data.length} registros).`);
       return cached.data;
     }
+  }
+
+  try {
+    const { count: totalCount, error: totalErr } = await supabase
+      .from('students')
+      .select('*', { count: 'exact', head: true });
+    if (totalErr) {
+      console.warn('[Supabase][Students][Diag] Falha ao contar total:', totalErr);
+    } else {
+      console.info(`[Supabase][Students][Diag] total (sem filtro) = ${totalCount ?? 'n/a'}`);
+    }
+
+    const { count: activeOnlyCount, error: activeErr } = await supabase
+      .from('students')
+      .select('*', { count: 'exact', head: true })
+      .eq('active', true);
+    if (activeErr) {
+      console.warn('[Supabase][Students][Diag] Falha ao contar active=true:', activeErr);
+    } else {
+      console.info(`[Supabase][Students][Diag] active=true = ${activeOnlyCount ?? 'n/a'}`);
+    }
+  } catch (diagErr) {
+    console.warn('[Supabase][Students][Diag] Erro inesperado ao contar registros:', diagErr);
   }
 
   const { data, error } = await supabase

@@ -29,6 +29,12 @@ const getEnv = (name: string): string | undefined => {
 
 const supabaseUrl = getEnv('VITE_SUPABASE_URL');
 const supabaseAnonKey = getEnv('VITE_SUPABASE_ANON_KEY') || getEnv('VITE_SUPABASE_KEY');
+let supabaseHost = 'n/a';
+try {
+  if (supabaseUrl) {
+    supabaseHost = new URL(supabaseUrl).host;
+  }
+} catch (e) {}
 
 /**
  * Verificação rigorosa.
@@ -42,6 +48,8 @@ export const isSupabaseConfigured = !!(
 
 if (!isSupabaseConfigured) {
   console.warn("[Supabase] Credenciais não encontradas. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.");
+} else {
+  console.info(`[Supabase] Config detectada host=${supabaseHost}`);
 }
 
 /**
@@ -63,3 +71,5 @@ export const supabase = isSupabaseConfigured
         };
       }
     });
+
+export { supabaseHost };
