@@ -14,6 +14,23 @@ const nowIso = () => new Date().toISOString();
 
 const safeLocalStorage = () => (typeof localStorage === 'undefined' ? null : localStorage);
 
+const readBooleanEnv = (name: string): boolean => {
+  try {
+    const fromImportMeta = (import.meta as any).env?.[name];
+    if (typeof fromImportMeta === 'string') return ['true', '1', 'yes', 'on'].includes(fromImportMeta.toLowerCase());
+  } catch (e) {}
+  if (typeof process !== 'undefined' && process.env?.[name]) {
+    return ['true', '1', 'yes', 'on'].includes(String(process.env[name]).toLowerCase());
+  }
+  try {
+    const g = (globalThis as any)[name];
+    if (typeof g === 'string') return ['true', '1', 'yes', 'on'].includes(g.toLowerCase());
+  } catch (e) {}
+  return false;
+};
+
+const ALLOW_DESTRUCTIVE_STUDENT_DELETE = readBooleanEnv('ALLOW_DESTRUCTIVE_STUDENT_DELETE');
+
 const normalizeId = (id: string | number): number => {
   if (typeof id === 'number') return id;
   const numeric = parseInt(String(id).replace('s-', '').trim(), 10);
@@ -27,6 +44,18 @@ const annotateError = (message: string) => {
     return `${message} (possível bloqueio de RLS/policy no Supabase).`;
   }
   return message;
+};
+
+const logWrite = (op: 'CREATE' | 'UPDATE' | 'DELETE', info: { id?: string; name?: string; payload?: any }) => {
+  try {
+    const stack = new Error().stack;
+    console.debug(
+      `[Supabase][Students][${op}] id=${info.id ?? 'n/a'} name=${info.name ?? 'n/a'}`,
+      { payload: info.payload, stack }
+    );
+  } catch (e) {
+    console.debug(`[Supabase][Students][${op}] id=${info.id ?? 'n/a'} name=${info.name ?? 'n/a'}`);
+  }
 };
 
 const mapFromDb = (row: any): Student => {
@@ -147,8 +176,11 @@ async function listStudents(options: { forceRefresh?: boolean; allowCache?: bool
   }
 
   const mapped = (data || []).map(mapFromDb);
+  const activeCount = mapped.filter((s) => s.active !== false).length;
   writeCache(mapped);
-  console.debug(`[Supabase][Students] Fetched da nuvem (${mapped.length}).`);
+  console.debug(
+    `[Supabase][Students] Fetched da nuvem (${mapped.length}). Ativos=${activeCount} Inativos=${mapped.length - activeCount}`
+  );
   return mapped;
 }
 
@@ -157,6 +189,7 @@ async function createStudent(payload: Partial<Student>): Promise<Student> {
     throw new Error('Supabase não configurado. Cadastre as chaves no ambiente.');
   }
 
+  logWrite('CREATE', { name: payload.name, payload });
   const dbPayload = mapToDb({ ...payload, active: payload.active ?? true, billingStatus: payload.billingStatus ?? BillingStatus.SEM_INFO });
   const { data, error } = await supabase.from('students').insert([dbPayload]).select().single();
 
@@ -180,6 +213,7 @@ async function updateStudent(id: string, payload: Partial<Student>): Promise<Stu
   const numericId = normalizeId(id);
   const dbPayload = mapToDb(payload);
 
+  logWrite('UPDATE', { id: String(id), name: payload.name, payload });
   const { data, error } = await supabase.from('students').update(dbPayload).eq('id', numericId).select().single();
 
   if (error) {
@@ -197,6 +231,12 @@ async function updateStudent(id: string, payload: Partial<Student>): Promise<Stu
 async function deleteStudent(id: string): Promise<void> {
   if (!isSupabaseConfigured) {
     throw new Error('Supabase não configurado. Cadastre as chaves no ambiente.');
+  }
+  logWrite('DELETE', { id });
+  if (!ALLOW_DESTRUCTIVE_STUDENT_DELETE) {
+    const msg = 'DELETE em students bloqueado: defina ALLOW_DESTRUCTIVE_STUDENT_DELETE=true para habilitar operação destrutiva.';
+    console.error('[Supabase][Students][Guard]', msg, { id });
+    throw new Error(msg);
   }
   const numericId = normalizeId(id);
   const { error } = await supabase.from('students').delete().eq('id', numericId);
@@ -225,7 +265,11 @@ async function pushPendingChanges(): Promise<{ pushed: number; errors: string[] 
       } else if (change.op === 'update') {
         await updateStudent(change.id, change.payload);
       } else if (change.op === 'delete') {
-        await deleteStudent(change.id);
+        const msg =
+          'Operação DELETE pendente bloqueada por segurança (defina ALLOW_DESTRUCTIVE_STUDENT_DELETE=true para permitir).';
+        console.warn(`[Students][Queue] ${msg}`, change);
+        errors.push(msg);
+        continue;
       }
       pushed++;
     } catch (e: any) {
