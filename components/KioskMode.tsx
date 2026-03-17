@@ -34,8 +34,9 @@ export default function KioskMode({ onExit }: KioskModeProps) {
   const [pinValue, setPinValue] = useState('');
   const [isConfirming, setIsConfirming] = useState(false);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const [qrOpenedMap, setQrOpenedMap] = useState<Record<string, boolean>>({});
 
-  const { session: activeSession, students, loading, error, refresh, confirmAttendance } = useKioskSession();
+  const { session: activeSession, students, loading, error, isReconnecting, refresh, confirmAttendance } = useKioskSession();
 
   useEffect(() => {
     localStorage.setItem('fisiostudio_kiosk_locked', 'true');
@@ -50,6 +51,7 @@ export default function KioskMode({ onExit }: KioskModeProps) {
     if (!activeSession) {
       setActiveCheckinItem(null);
       setSearchTerm('');
+      setQrOpenedMap({});
     }
   }, [activeSession]);
 
@@ -84,7 +86,14 @@ export default function KioskMode({ onExit }: KioskModeProps) {
 
   const startCheckinFlow = (student: KioskSessionStudent) => {
     if ((student.status || '').toLowerCase() === 'confirmed') return;
+    setQrOpenedMap(prev => ({ ...prev, [student.id]: true }));
     setActiveCheckinItem(student);
+  };
+
+  const handleRetryQr = (student: KioskSessionStudent) => {
+    if (!activeSession) return;
+    setQrOpenedMap(prev => ({ ...prev, [student.id]: true }));
+    setActiveCheckinItem({ ...student });
   };
 
   const handleFinalConfirm = async () => {
@@ -218,9 +227,15 @@ export default function KioskMode({ onExit }: KioskModeProps) {
           </div>
         )}
 
-        {error && (
-          <div className="mb-6 bg-red-50 border-2 border-red-200 text-red-700 text-sm font-bold px-6 py-4 rounded-[2rem] shadow-inner">
-            {error}
+        {(error || isReconnecting) && (
+          <div
+            className={`mb-6 text-sm font-bold px-6 py-4 rounded-[2rem] shadow-inner ${
+              isReconnecting
+                ? 'bg-amber-50 border-2 border-amber-200 text-amber-700'
+                : 'bg-red-50 border-2 border-red-200 text-red-700'
+            }`}
+          >
+            {isReconnecting ? 'Reconectando ao Supabase...' : error}
           </div>
         )}
 
@@ -237,26 +252,37 @@ export default function KioskMode({ onExit }: KioskModeProps) {
           ) : (
             currentStudentsList.map(item => {
               const isPresent = (item.status || '').toLowerCase() === 'confirmed';
+              const hasQrHistory = qrOpenedMap[item.id] || isPresent;
               return (
-                <button 
-                  key={item.id} 
-                  disabled={isPresent}
-                  onClick={() => startCheckinFlow(item)} 
-                  className={`w-full bg-white p-10 rounded-[4rem] shadow-premium hover:shadow-glow flex items-center justify-between transition-all border-4 ${isPresent ? 'opacity-50 border-emerald-500' : 'border-transparent active:scale-95 hover:border-brand-light/20'}`}
-                >
-                  <div className="flex items-center gap-10 text-left">
-                     <div className={`w-20 h-20 rounded-[2.5rem] flex items-center justify-center font-black text-3xl ${isPresent ? 'bg-emerald-100 text-emerald-600' : 'bg-brand-bg text-brand-dark'}`}>
-                      {item.full_name.charAt(0)}
-                     </div>
-                     <div>
-                       <h4 className="text-3xl font-black text-slate-800 leading-tight">{item.full_name}</h4>
-                       <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Horário agendado: {sessionStartLabel}</p>
-                     </div>
-                  </div>
-                  <div className={`${isPresent ? 'bg-emerald-500' : 'bg-brand-primary'} text-white px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-glow`}>
-                    {isPresent ? 'Presença Validada' : 'Confirmar Presença'}
-                  </div>
-                </button>
+                <div key={item.id} className="relative">
+                  <button 
+                    disabled={isPresent}
+                    onClick={() => startCheckinFlow(item)} 
+                    className={`w-full bg-white p-10 rounded-[4rem] shadow-premium hover:shadow-glow flex items-center justify-between transition-all border-4 ${isPresent ? 'opacity-50 border-emerald-500' : 'border-transparent active:scale-95 hover:border-brand-light/20'}`}
+                  >
+                    <div className="flex items-center gap-10 text-left">
+                       <div className={`w-20 h-20 rounded-[2.5rem] flex items-center justify-center font-black text-3xl ${isPresent ? 'bg-emerald-100 text-emerald-600' : 'bg-brand-bg text-brand-dark'}`}>
+                        {item.full_name.charAt(0)}
+                       </div>
+                       <div>
+                         <h4 className="text-3xl font-black text-slate-800 leading-tight">{item.full_name}</h4>
+                         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Horário agendado: {sessionStartLabel}</p>
+                       </div>
+                    </div>
+                    <div className={`${isPresent ? 'bg-emerald-500' : 'bg-brand-primary'} text-white px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-glow`}>
+                      {isPresent ? 'Presença Validada' : 'Confirmar Presença'}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRetryQr(item)}
+                    disabled={!hasQrHistory}
+                    className="absolute right-6 top-6 bg-white text-brand-primary p-3 rounded-full shadow-premium border border-brand-light/50 active:scale-95 z-10 disabled:opacity-40 disabled:cursor-not-allowed"
+                    aria-label="Refazer QR"
+                  >
+                    <Icons.Refresh />
+                  </button>
+                </div>
               );
             })
           )}
