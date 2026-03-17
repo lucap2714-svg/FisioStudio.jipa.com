@@ -60,6 +60,7 @@ const logWrite = (op: 'CREATE' | 'UPDATE' | 'DELETE', info: { id?: string; name?
 
 const mapFromDb = (row: any): Student => {
   const weeklySchedule: StudentSchedule[] = Array.isArray(row.weekly_schedule) ? row.weekly_schedule : [];
+  const dbActive = row.active;
   return {
     id: `s-${row.id}`,
     name: row.full_name || row.name || 'Aluno',
@@ -67,7 +68,7 @@ const mapFromDb = (row: any): Student => {
     studentType: (row.student_type as StudentType) || 'Fixo',
     weeklySchedule,
     weeklyDays: Array.from(new Set(weeklySchedule.map((s) => s.day))).filter(Boolean),
-    active: row.active !== false,
+    active: dbActive !== false,
     role: UserRole.STUDENT,
     billingStatus: (row.billing_status as BillingStatus) || BillingStatus.SEM_INFO,
     fixedMonthlyFee: row.fixed_monthly_fee ?? undefined,
@@ -168,12 +169,17 @@ async function listStudents(options: { forceRefresh?: boolean; allowCache?: bool
   const { data, error } = await supabase
     .from('students')
     .select('id, full_name, phone, student_type, weekly_schedule, active, billing_status, fixed_monthly_fee, fixed_due_day, wellhub_eligibility_status')
+    .eq('active', true)
     .order('full_name', { ascending: true });
 
   if (error) {
     console.error('[Supabase][Students] Erro no SELECT:', error);
     throw new Error(`Falha ao carregar alunos: ${annotateError(error.message)}`);
   }
+
+  const totalRows = Array.isArray(data) ? data.length : 0;
+  const activeRows = (data || []).filter((row) => row.active !== false).length;
+  console.debug(`[Supabase][Students] SELECT retornou total=${totalRows} ativo=${activeRows} inativo=${totalRows - activeRows}.`);
 
   const mapped = (data || []).map(mapFromDb);
   const activeCount = mapped.filter((s) => s.active !== false).length;
@@ -233,20 +239,18 @@ async function deleteStudent(id: string): Promise<void> {
     throw new Error('Supabase não configurado. Cadastre as chaves no ambiente.');
   }
   logWrite('DELETE', { id });
-  if (!ALLOW_DESTRUCTIVE_STUDENT_DELETE) {
-    const msg = 'DELETE em students bloqueado: defina ALLOW_DESTRUCTIVE_STUDENT_DELETE=true para habilitar operação destrutiva.';
-    console.error('[Supabase][Students][Guard]', msg, { id });
-    throw new Error(msg);
-  }
   const numericId = normalizeId(id);
-  const { error } = await supabase.from('students').delete().eq('id', numericId);
+  if (ALLOW_DESTRUCTIVE_STUDENT_DELETE) {
+    console.warn('[Supabase][Students][Guard] Flag ALLOW_DESTRUCTIVE_STUDENT_DELETE=true ativa, mas operação continua como soft-delete (active=false).', { id });
+  }
+  const { error } = await supabase.from('students').update({ active: false }).eq('id', numericId);
   if (error) {
     enqueuePending({ op: 'delete', id, timestamp: nowIso() });
-    console.error('[Supabase][Students] Erro no DELETE:', error);
-    throw new Error(`Não foi possível remover o aluno: ${annotateError(error.message)}`);
+    console.error('[Supabase][Students] Erro no SOFT DELETE (active=false):', error);
+    throw new Error(`Não foi possível desativar o aluno: ${annotateError(error.message)}`);
   }
   clearCache();
-  console.debug(`[Supabase][Students] Removido: s-${numericId}.`);
+  console.debug(`[Supabase][Students] Soft-delete aplicado (active=false): s-${numericId}.`);
 }
 
 async function pushPendingChanges(): Promise<{ pushed: number; errors: string[] }> {
@@ -265,11 +269,7 @@ async function pushPendingChanges(): Promise<{ pushed: number; errors: string[] 
       } else if (change.op === 'update') {
         await updateStudent(change.id, change.payload);
       } else if (change.op === 'delete') {
-        const msg =
-          'Operação DELETE pendente bloqueada por segurança (defina ALLOW_DESTRUCTIVE_STUDENT_DELETE=true para permitir).';
-        console.warn(`[Students][Queue] ${msg}`, change);
-        errors.push(msg);
-        continue;
+        await deleteStudent(change.id);
       }
       pushed++;
     } catch (e: any) {
