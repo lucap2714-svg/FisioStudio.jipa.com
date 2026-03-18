@@ -5,6 +5,14 @@ const CACHE_KEY = 'students_cache_v1';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const PENDING_KEY = 'students_pending_ops_v1';
 
+type StudentColumns = {
+  nameColumn: 'full_name' | 'name' | string;
+  hasBillingStatus: boolean;
+};
+
+const STUDENT_NAME_CANDIDATES: Array<StudentColumns['nameColumn']> = ['full_name', 'name'];
+let studentColumnsPromise: Promise<StudentColumns> | null = null;
+
 type PendingChange =
   | { op: 'create'; payload: Partial<Student>; timestamp: string }
   | { op: 'update'; id: string; payload: Partial<Student>; timestamp: string }
@@ -58,33 +66,67 @@ const logWrite = (op: 'CREATE' | 'UPDATE' | 'DELETE', info: { id?: string; name?
   }
 };
 
-const mapFromDb = (row: any): Student => {
+const resolveStudentColumns = async (): Promise<StudentColumns> => {
+  if (studentColumnsPromise) return studentColumnsPromise;
+
+  studentColumnsPromise = (async () => {
+    const resolved: StudentColumns = { nameColumn: STUDENT_NAME_CANDIDATES[0], hasBillingStatus: true };
+
+    for (const candidate of STUDENT_NAME_CANDIDATES) {
+      const { error } = await supabase.from('students').select(`id, ${candidate}`).limit(1);
+      if (!error) {
+        resolved.nameColumn = candidate;
+        break;
+      }
+      console.debug(`[Supabase][Students][Diag] Coluna de nome ausente: ${candidate}`, error);
+    }
+
+    const { error: billingErr } = await supabase.from('students').select('id, billing_status').limit(1);
+    if (billingErr) {
+      resolved.hasBillingStatus = false;
+      console.debug('[Supabase][Students][Diag] billing_status ausente. Usando fallback SEM_INFO.', billingErr);
+    }
+
+    console.debug(
+      `[Supabase][Students][Diag] Colunas resolvidas name=${resolved.nameColumn} billing=${resolved.hasBillingStatus}`
+    );
+
+    return resolved;
+  })();
+
+  return studentColumnsPromise;
+};
+
+const mapFromDb = (row: any, columns: StudentColumns): Student => {
   const weeklySchedule: StudentSchedule[] = Array.isArray(row.weekly_schedule) ? row.weekly_schedule : [];
   const dbActive = row.active;
+  const nameValue = row?.[columns.nameColumn] ?? row.full_name ?? row.name ?? 'Aluno';
+  const billingValue =
+    columns.hasBillingStatus && row.billing_status ? (row.billing_status as BillingStatus) : BillingStatus.SEM_INFO;
   return {
     id: `s-${row.id}`,
-    name: row.full_name || row.name || 'Aluno',
+    name: nameValue,
     phone: row.phone || '',
     studentType: (row.student_type as StudentType) || 'Fixo',
     weeklySchedule,
     weeklyDays: Array.from(new Set(weeklySchedule.map((s) => s.day))).filter(Boolean),
     active: dbActive !== false,
     role: UserRole.STUDENT,
-    billingStatus: (row.billing_status as BillingStatus) || BillingStatus.SEM_INFO,
+    billingStatus: billingValue,
     fixedMonthlyFee: row.fixed_monthly_fee ?? undefined,
     fixedDueDay: row.fixed_due_day ?? undefined,
     wellhubEligibilityStatus: row.wellhub_eligibility_status ?? undefined,
   };
 };
 
-const mapToDb = (payload: Partial<Student>) => {
+const mapToDb = (payload: Partial<Student>, columns: StudentColumns) => {
   const body: any = {};
-  if (payload.name !== undefined) body.full_name = payload.name.trim();
+  if (payload.name !== undefined) body[columns.nameColumn] = payload.name.trim();
   if (payload.phone !== undefined) body.phone = payload.phone;
   if (payload.studentType !== undefined) body.student_type = payload.studentType;
   if (payload.weeklySchedule !== undefined) body.weekly_schedule = payload.weeklySchedule;
   if (payload.active !== undefined) body.active = payload.active;
-  if (payload.billingStatus !== undefined) body.billing_status = payload.billingStatus;
+  if (columns.hasBillingStatus && payload.billingStatus !== undefined) body.billing_status = payload.billingStatus;
   if (payload.fixedMonthlyFee !== undefined) body.fixed_monthly_fee = payload.fixedMonthlyFee;
   if (payload.fixedDueDay !== undefined) body.fixed_due_day = payload.fixedDueDay;
   if (payload.wellhubEligibilityStatus !== undefined) body.wellhub_eligibility_status = payload.wellhubEligibilityStatus;
@@ -153,13 +195,17 @@ const enqueuePending = (change: PendingChange) => {
 
 async function listStudents(options: { forceRefresh?: boolean; allowCache?: boolean } = {}): Promise<Student[]> {
   if (!isSupabaseConfigured) {
-    throw new Error('[Supabase] Credenciais não configuradas. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.');
+    throw new Error('[Supabase] Credenciais n??o configuradas. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.');
   }
 
   const { forceRefresh = false, allowCache = true } = options;
+  const columns = await resolveStudentColumns();
 
   console.info(
     `[Supabase][Students] list() table=students filter=active=true host=${supabaseHost} configured=${isSupabaseConfigured}`
+  );
+  console.debug(
+    `[Supabase][Students][Diag] selectColumns name=${columns.nameColumn} billing=${columns.hasBillingStatus} filter=active=true order=${columns.nameColumn}`
   );
 
   if (!forceRefresh && allowCache) {
@@ -193,14 +239,31 @@ async function listStudents(options: { forceRefresh?: boolean; allowCache?: bool
     console.warn('[Supabase][Students][Diag] Erro inesperado ao contar registros:', diagErr);
   }
 
+  const selectFields = [
+    'id',
+    columns.nameColumn,
+    'phone',
+    'student_type',
+    'weekly_schedule',
+    'active',
+    'fixed_monthly_fee',
+    'fixed_due_day',
+    'wellhub_eligibility_status',
+  ];
+
+  if (columns.hasBillingStatus) {
+    selectFields.push('billing_status');
+  }
+
   const { data, error } = await supabase
     .from('students')
-    .select('id, full_name, phone, student_type, weekly_schedule, active, billing_status, fixed_monthly_fee, fixed_due_day, wellhub_eligibility_status')
+    .select(selectFields.join(', '))
     .eq('active', true)
-    .order('full_name', { ascending: true });
+    .order(columns.nameColumn, { ascending: true });
 
   if (error) {
     console.error('[Supabase][Students] Erro no SELECT:', error);
+    console.debug('[Supabase][Students] Erro completo no SELECT:', error);
     throw new Error(`Falha ao carregar alunos: ${annotateError(error.message)}`);
   }
 
@@ -208,7 +271,7 @@ async function listStudents(options: { forceRefresh?: boolean; allowCache?: bool
   const activeRows = (data || []).filter((row) => row.active !== false).length;
   console.debug(`[Supabase][Students] SELECT retornou total=${totalRows} ativo=${activeRows} inativo=${totalRows - activeRows}.`);
 
-  const mapped = (data || []).map(mapFromDb);
+  const mapped = (data || []).map((row) => mapFromDb(row, columns));
   const activeCount = mapped.filter((s) => s.active !== false).length;
   writeCache(mapped);
   console.debug(
@@ -219,20 +282,26 @@ async function listStudents(options: { forceRefresh?: boolean; allowCache?: bool
 
 async function createStudent(payload: Partial<Student>): Promise<Student> {
   if (!isSupabaseConfigured) {
-    throw new Error('Supabase não configurado. Cadastre as chaves no ambiente.');
+    throw new Error('Supabase n??o configurado. Cadastre as chaves no ambiente.');
   }
 
+  const columns = await resolveStudentColumns();
   logWrite('CREATE', { name: payload.name, payload });
-  const dbPayload = mapToDb({ ...payload, active: payload.active ?? true, billingStatus: payload.billingStatus ?? BillingStatus.SEM_INFO });
+  console.debug(`[Supabase][Students][Diag] INSERT columns name=${columns.nameColumn} billing=${columns.hasBillingStatus}`);
+  const dbPayload = mapToDb(
+    { ...payload, active: payload.active ?? true, billingStatus: payload.billingStatus ?? BillingStatus.SEM_INFO },
+    columns
+  );
   const { data, error } = await supabase.from('students').insert([dbPayload]).select().single();
 
   if (error) {
     enqueuePending({ op: 'create', payload, timestamp: nowIso() });
     console.error('[Supabase][Students] Erro no INSERT:', error);
-    throw new Error(`Não foi possível criar o aluno: ${annotateError(error.message)}`);
+    console.debug('[Supabase][Students] Erro completo no INSERT:', error);
+    throw new Error(`N??o foi poss??vel criar o aluno: ${annotateError(error.message)}`);
   }
 
-  const student = mapFromDb(data);
+  const student = mapFromDb(data, columns);
   clearCache();
   console.debug(`[Supabase][Students] Criado no Supabase: ${student.id} (${student.name}).`);
   return student;
@@ -240,27 +309,29 @@ async function createStudent(payload: Partial<Student>): Promise<Student> {
 
 async function updateStudent(id: string, payload: Partial<Student>): Promise<Student> {
   if (!isSupabaseConfigured) {
-    throw new Error('Supabase não configurado. Cadastre as chaves no ambiente.');
+    throw new Error('Supabase n??o configurado. Cadastre as chaves no ambiente.');
   }
 
   const numericId = normalizeId(id);
-  const dbPayload = mapToDb(payload);
+  const columns = await resolveStudentColumns();
+  const dbPayload = mapToDb(payload, columns);
 
   logWrite('UPDATE', { id: String(id), name: payload.name, payload });
+  console.debug(`[Supabase][Students][Diag] UPDATE columns name=${columns.nameColumn} billing=${columns.hasBillingStatus}`);
   const { data, error } = await supabase.from('students').update(dbPayload).eq('id', numericId).select().single();
 
   if (error) {
     enqueuePending({ op: 'update', id, payload, timestamp: nowIso() });
     console.error('[Supabase][Students] Erro no UPDATE:', error);
-    throw new Error(`Não foi possível atualizar o aluno: ${annotateError(error.message)}`);
+    console.debug('[Supabase][Students] Erro completo no UPDATE:', error);
+    throw new Error(`N??o foi poss??vel atualizar o aluno: ${annotateError(error.message)}`);
   }
 
-  const student = mapFromDb(data);
+  const student = mapFromDb(data, columns);
   clearCache();
   console.debug(`[Supabase][Students] Atualizado: ${student.id} (${student.name}).`);
   return student;
 }
-
 async function deleteStudent(id: string): Promise<void> {
   if (!isSupabaseConfigured) {
     throw new Error('Supabase não configurado. Cadastre as chaves no ambiente.');
@@ -274,7 +345,8 @@ async function deleteStudent(id: string): Promise<void> {
   if (error) {
     enqueuePending({ op: 'delete', id, timestamp: nowIso() });
     console.error('[Supabase][Students] Erro no SOFT DELETE (active=false):', error);
-    throw new Error(`Não foi possível desativar o aluno: ${annotateError(error.message)}`);
+    console.debug('[Supabase][Students] Erro completo no SOFT DELETE (active=false):', error);
+    throw new Error(`N??o foi poss??vel desativar o aluno: ${annotateError(error.message)}`);
   }
   clearCache();
   console.debug(`[Supabase][Students] Soft-delete aplicado (active=false): s-${numericId}.`);
@@ -326,3 +398,4 @@ export const studentsService = {
 };
 
 export type StudentsService = typeof studentsService;
+export const getStudentColumns = resolveStudentColumns;

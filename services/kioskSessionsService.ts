@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { getStudentColumns } from './studentsService';
 
 export interface KioskSession {
   id: string;
@@ -70,10 +71,9 @@ export const kioskSessionsService = {
       throw new Error('Sessão ativa não encontrada para carregar alunos.');
     }
 
-    const { data, error } = await supabase
-      .from('kiosk_session_students')
-      .select(
-        `
+    const columns = await getStudentColumns();
+    const studentNameColumn = columns.nameColumn;
+    const selectClause = `
           id,
           session_id,
           student_id,
@@ -81,13 +81,16 @@ export const kioskSessionsService = {
           confirmed_at,
           students!inner (
             id,
-            full_name,
+            ${studentNameColumn},
             phone
           )
-        `
-      )
+        `;
+
+    const { data, error } = await supabase
+      .from('kiosk_session_students')
+      .select(selectClause)
       .eq('session_id', sessionId)
-      .order('full_name', { foreignTable: 'students', ascending: true });
+      .order(studentNameColumn, { foreignTable: 'students', ascending: true });
 
     if (error) throw error;
     const rawCount = data?.length || 0;
@@ -97,11 +100,13 @@ export const kioskSessionsService = {
       student_id: String(row.student_id),
       status: row.status || 'scheduled',
       confirmed_at: row.confirmed_at || null,
-      full_name: row.students?.full_name || 'Aluno',
+      full_name: row.students?.[studentNameColumn] || row.students?.full_name || row.students?.name || 'Aluno',
       phone: row.students?.phone || undefined,
     }));
 
-    console.debug(`[Kiosk][Supabase] session=${sessionId} students=${mapped.length} (raw=${rawCount})`);
+    console.debug(
+      `[Kiosk][Supabase] session=${sessionId} students=${mapped.length} (raw=${rawCount}) nameCol=${studentNameColumn}`
+    );
 
     return mapped;
   },
