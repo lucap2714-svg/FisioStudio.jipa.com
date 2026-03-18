@@ -7,10 +7,15 @@ const PENDING_KEY = 'students_pending_ops_v1';
 
 type StudentColumns = {
   nameColumn: 'full_name' | 'name' | string;
+  available: Set<string>;
   hasBillingStatus: boolean;
+  hasFixedMonthlyFee: boolean;
+  hasFixedDueDay: boolean;
+  hasWellhubEligibilityStatus: boolean;
 };
 
 const STUDENT_NAME_CANDIDATES: Array<StudentColumns['nameColumn']> = ['full_name', 'name'];
+let studentColumnsCache: { expiresAt: number; data: StudentColumns } | null = null;
 let studentColumnsPromise: Promise<StudentColumns> | null = null;
 
 type PendingChange =
@@ -66,70 +71,113 @@ const logWrite = (op: 'CREATE' | 'UPDATE' | 'DELETE', info: { id?: string; name?
   }
 };
 
+const STUDENT_COLUMNS_CACHE_MS = 5 * 60 * 1000;
+
 const resolveStudentColumns = async (): Promise<StudentColumns> => {
+  if (studentColumnsCache && studentColumnsCache.expiresAt > Date.now()) {
+    return studentColumnsCache.data;
+  }
   if (studentColumnsPromise) return studentColumnsPromise;
 
   studentColumnsPromise = (async () => {
-    const resolved: StudentColumns = { nameColumn: STUDENT_NAME_CANDIDATES[0], hasBillingStatus: true };
+    let available = new Set<string>();
+    let infoSchemaError: any = null;
 
-    for (const candidate of STUDENT_NAME_CANDIDATES) {
-      const { error } = await supabase.from('students').select(`id, ${candidate}`).limit(1);
-      if (!error) {
-        resolved.nameColumn = candidate;
-        break;
+    try {
+      const { data, error } = await supabase
+        .from('information_schema.columns')
+        .select('column_name')
+        .eq('table_schema', 'public')
+        .eq('table_name', 'students');
+
+      if (error) {
+        infoSchemaError = error;
+      } else if (Array.isArray(data)) {
+        available = new Set(data.map((row: any) => String(row.column_name)));
       }
-      console.debug(`[Supabase][Students][Diag] Coluna de nome ausente: ${candidate}`, error);
+    } catch (e) {
+      infoSchemaError = e;
     }
 
-    const { error: billingErr } = await supabase.from('students').select('id, billing_status').limit(1);
-    if (billingErr) {
-      resolved.hasBillingStatus = false;
-      console.debug('[Supabase][Students][Diag] billing_status ausente. Usando fallback SEM_INFO.', billingErr);
+    if (available.size === 0) {
+      console.warn(
+        '[Supabase][Students][Diag] Falha ao ler information_schema.columns, fallback para detecÃ§Ã£o tentativa.',
+        infoSchemaError
+      );
+      for (const candidate of STUDENT_NAME_CANDIDATES) {
+        const { error } = await supabase.from('students').select(`id, ${candidate}`).limit(1);
+        if (!error) {
+          available.add('id');
+          available.add(candidate);
+          break;
+        }
+      }
+
+      ['phone', 'student_type', 'weekly_schedule', 'active'].forEach((col) => available.add(col));
     }
 
-    console.debug(
-      `[Supabase][Students][Diag] Colunas resolvidas name=${resolved.nameColumn} billing=${resolved.hasBillingStatus}`
-    );
+    // Garante colunas bÃ¡sicas suspeitas de existirem mesmo quando o info_schema falha.
+    if (!available.has('id')) available.add('id');
 
+    const nameColumn = STUDENT_NAME_CANDIDATES.find((c) => available.has(c)) || STUDENT_NAME_CANDIDATES[0];
+
+    const resolved: StudentColumns = {
+      nameColumn,
+      available,
+      hasBillingStatus: available.has('billing_status'),
+      hasFixedMonthlyFee: available.has('fixed_monthly_fee'),
+      hasFixedDueDay: available.has('fixed_due_day'),
+      hasWellhubEligibilityStatus: available.has('wellhub_eligibility_status'),
+    };
+
+    studentColumnsCache = { expiresAt: Date.now() + STUDENT_COLUMNS_CACHE_MS, data: resolved };
     return resolved;
-  })();
+  })().finally(() => {
+    studentColumnsPromise = null;
+  });
 
   return studentColumnsPromise;
 };
 
+const hasColumn = (columns: StudentColumns, name: string) =>
+  columns.available.size === 0 || columns.available.has(name);
+
 const mapFromDb = (row: any, columns: StudentColumns): Student => {
-  const weeklySchedule: StudentSchedule[] = Array.isArray(row.weekly_schedule) ? row.weekly_schedule : [];
-  const dbActive = row.active;
+  const weeklySchedule: StudentSchedule[] =
+    hasColumn(columns, 'weekly_schedule') && Array.isArray(row.weekly_schedule) ? row.weekly_schedule : [];
+  const dbActive = hasColumn(columns, 'active') ? row.active : true;
   const nameValue = row?.[columns.nameColumn] ?? row.full_name ?? row.name ?? 'Aluno';
   const billingValue =
     columns.hasBillingStatus && row.billing_status ? (row.billing_status as BillingStatus) : BillingStatus.SEM_INFO;
+
   return {
     id: `s-${row.id}`,
     name: nameValue,
-    phone: row.phone || '',
-    studentType: (row.student_type as StudentType) || 'Fixo',
+    phone: hasColumn(columns, 'phone') ? row.phone || '' : '',
+    studentType: hasColumn(columns, 'student_type') ? (row.student_type as StudentType) || 'Fixo' : 'Fixo',
     weeklySchedule,
     weeklyDays: Array.from(new Set(weeklySchedule.map((s) => s.day))).filter(Boolean),
     active: dbActive !== false,
     role: UserRole.STUDENT,
     billingStatus: billingValue,
-    fixedMonthlyFee: row.fixed_monthly_fee ?? undefined,
-    fixedDueDay: row.fixed_due_day ?? undefined,
-    wellhubEligibilityStatus: row.wellhub_eligibility_status ?? undefined,
+    fixedMonthlyFee: columns.hasFixedMonthlyFee ? row.fixed_monthly_fee ?? undefined : undefined,
+    fixedDueDay: columns.hasFixedDueDay ? row.fixed_due_day ?? undefined : undefined,
+    wellhubEligibilityStatus: columns.hasWellhubEligibilityStatus ? row.wellhub_eligibility_status ?? undefined : undefined,
   };
 };
 
 const mapToDb = (payload: Partial<Student>, columns: StudentColumns) => {
   const body: any = {};
-  if (payload.name !== undefined) body[columns.nameColumn] = payload.name.trim();
-  if (payload.phone !== undefined) body.phone = payload.phone;
-  if (payload.studentType !== undefined) body.student_type = payload.studentType;
-  if (payload.weeklySchedule !== undefined) body.weekly_schedule = payload.weeklySchedule;
-  if (payload.active !== undefined) body.active = payload.active;
+  if (payload.name !== undefined && hasColumn(columns, columns.nameColumn)) body[columns.nameColumn] = payload.name.trim();
+  if (payload.phone !== undefined && hasColumn(columns, 'phone')) body.phone = payload.phone;
+  if (payload.studentType !== undefined && hasColumn(columns, 'student_type')) body.student_type = payload.studentType;
+  if (payload.weeklySchedule !== undefined && hasColumn(columns, 'weekly_schedule')) body.weekly_schedule = payload.weeklySchedule;
+  if (payload.active !== undefined && hasColumn(columns, 'active')) body.active = payload.active;
   if (columns.hasBillingStatus && payload.billingStatus !== undefined) body.billing_status = payload.billingStatus;
-  if (payload.fixedMonthlyFee !== undefined) body.fixed_monthly_fee = payload.fixedMonthlyFee;
-  if (payload.fixedDueDay !== undefined) body.fixed_due_day = payload.fixedDueDay;
-  if (payload.wellhubEligibilityStatus !== undefined) body.wellhub_eligibility_status = payload.wellhubEligibilityStatus;
+  if (columns.hasFixedMonthlyFee && payload.fixedMonthlyFee !== undefined) body.fixed_monthly_fee = payload.fixedMonthlyFee;
+  if (columns.hasFixedDueDay && payload.fixedDueDay !== undefined) body.fixed_due_day = payload.fixedDueDay;
+  if (columns.hasWellhubEligibilityStatus && payload.wellhubEligibilityStatus !== undefined)
+    body.wellhub_eligibility_status = payload.wellhubEligibilityStatus;
   return body;
 };
 
@@ -202,11 +250,25 @@ async function listStudents(options: { forceRefresh?: boolean; allowCache?: bool
   const columns = await resolveStudentColumns();
 
   console.info(
-    `[Supabase][Students] list() table=students filter=active=true host=${supabaseHost} configured=${isSupabaseConfigured}`
+    `[Supabase][Students] list() table=students host=${supabaseHost} configured=${isSupabaseConfigured}`
   );
   console.debug(
-    `[Supabase][Students][Diag] selectColumns name=${columns.nameColumn} billing=${columns.hasBillingStatus} filter=active=true order=${columns.nameColumn}`
+    `[Supabase][Students][Diag] colunas_detectadas=${Array.from(columns.available).join(',') || 'desconhecido'} name=${columns.nameColumn} billing=${columns.hasBillingStatus}`
   );
+
+  if (columns.available.size > 0) {
+    const requiredColumns = ['id', columns.nameColumn, 'phone', 'student_type', 'weekly_schedule', 'active'];
+    const missingRequired = requiredColumns.filter((c) => !columns.available.has(c));
+    if (missingRequired.length > 0) {
+      console.warn(`[Supabase][Students][Diag] Colunas ausentes no schema: ${missingRequired.join(', ')}`);
+    }
+    const optionalMissing = ['billing_status', 'fixed_monthly_fee', 'fixed_due_day', 'wellhub_eligibility_status'].filter(
+      (c) => !columns.available.has(c)
+    );
+    if (optionalMissing.length > 0) {
+      console.debug(`[Supabase][Students][Diag] Colunas opcionais ausentes: ${optionalMissing.join(', ')}`);
+    }
+  }
 
   if (!forceRefresh && allowCache) {
     const cached = readCache();
@@ -226,52 +288,67 @@ async function listStudents(options: { forceRefresh?: boolean; allowCache?: bool
       console.info(`[Supabase][Students][Diag] total (sem filtro) = ${totalCount ?? 'n/a'}`);
     }
 
-    const { count: activeOnlyCount, error: activeErr } = await supabase
-      .from('students')
-      .select('*', { count: 'exact', head: true })
-      .eq('active', true);
-    if (activeErr) {
-      console.warn('[Supabase][Students][Diag] Falha ao contar active=true:', activeErr);
+    if (hasColumn(columns, 'active')) {
+      const { count: activeOnlyCount, error: activeErr } = await supabase
+        .from('students')
+        .select('*', { count: 'exact', head: true })
+        .eq('active', true);
+      if (activeErr) {
+        console.warn('[Supabase][Students][Diag] Falha ao contar active=true:', activeErr);
+      } else {
+        console.info(`[Supabase][Students][Diag] active=true = ${activeOnlyCount ?? 'n/a'}`);
+      }
     } else {
-      console.info(`[Supabase][Students][Diag] active=true = ${activeOnlyCount ?? 'n/a'}`);
+      console.warn('[Supabase][Students][Diag] Coluna active ausente; pulando count active=true.');
     }
   } catch (diagErr) {
     console.warn('[Supabase][Students][Diag] Erro inesperado ao contar registros:', diagErr);
   }
 
-  const selectFields = [
-    'id',
-    columns.nameColumn,
-    'phone',
-    'student_type',
-    'weekly_schedule',
-    'active',
-    'fixed_monthly_fee',
-    'fixed_due_day',
-    'wellhub_eligibility_status',
-  ];
+  const selectFields: string[] = [];
+  const requiredSelect = ['id', columns.nameColumn, 'phone', 'student_type', 'weekly_schedule', 'active'];
+  for (const col of requiredSelect) {
+    if (hasColumn(columns, col) && !selectFields.includes(col)) selectFields.push(col);
+  }
+  if (columns.hasBillingStatus) selectFields.push('billing_status');
+  if (columns.hasFixedMonthlyFee) selectFields.push('fixed_monthly_fee');
+  if (columns.hasFixedDueDay) selectFields.push('fixed_due_day');
+  if (columns.hasWellhubEligibilityStatus) selectFields.push('wellhub_eligibility_status');
 
-  if (columns.hasBillingStatus) {
-    selectFields.push('billing_status');
+  const requestedColumns = Array.from(new Set(selectFields));
+  let query = supabase.from('students').select(requestedColumns.join(', '));
+
+  if (hasColumn(columns, 'active')) {
+    query = query.eq('active', true);
+  } else {
+    console.warn('[Supabase][Students][Diag] Coluna active ausente; SELECT sem filtro active=true.');
   }
 
-  const { data, error } = await supabase
-    .from('students')
-    .select(selectFields.join(', '))
-    .eq('active', true)
-    .order(columns.nameColumn, { ascending: true });
+  const orderColumn = hasColumn(columns, columns.nameColumn) ? columns.nameColumn : null;
+  if (orderColumn) {
+    query = query.order(orderColumn, { ascending: true });
+  } else {
+    console.warn(`[Supabase][Students][Diag] Ordena????o ignorada; coluna de nome n??o dispon??vel (${columns.nameColumn}).`);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error('[Supabase][Students] Erro no SELECT:', error);
-    console.debug('[Supabase][Students] Erro completo no SELECT:', error);
+    console.debug('[Supabase][Students] SELECT debug', {
+      table: 'students',
+      requestedColumns,
+      detectedColumns: Array.from(columns.available),
+      error,
+    });
     throw new Error(`Falha ao carregar alunos: ${annotateError(error.message)}`);
   }
 
   const totalRows = Array.isArray(data) ? data.length : 0;
-  const activeRows = (data || []).filter((row) => row.active !== false).length;
+  const activeRows = hasColumn(columns, 'active') ? (data || []).filter((row: any) => row.active !== false).length : totalRows;
   console.debug(`[Supabase][Students] SELECT retornou total=${totalRows} ativo=${activeRows} inativo=${totalRows - activeRows}.`);
 
-  const mapped = (data || []).map((row) => mapFromDb(row, columns));
+  const mapped = (data || []).map((row: any) => mapFromDb(row, columns));
   const activeCount = mapped.filter((s) => s.active !== false).length;
   writeCache(mapped);
   console.debug(
