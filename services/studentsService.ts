@@ -4,6 +4,8 @@ import { BillingStatus, Student, StudentSchedule, StudentType, UserRole } from '
 const CACHE_KEY = 'students_cache_v1';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const PENDING_KEY = 'students_pending_ops_v1';
+const traceId = (scope: string) => `${scope}-${Date.now().toString(36)}-${Math.random().toString(36).slice(-4)}`;
+let lastKnownStudents: { updatedAt: string; data: Student[] } | null = null;
 
 type StudentColumns = {
   nameColumn: 'full_name' | 'name' | string;
@@ -83,6 +85,19 @@ const resolveStudentColumns = async (): Promise<StudentColumns> => {
     let available = new Set<string>();
     let infoSchemaError: any = null;
 
+    const addIfExists = async (column: string) => {
+      try {
+        const { error } = await supabase.from('students').select(`id, ${column}`).limit(1);
+        if (!error) {
+          available.add(column);
+        } else {
+          console.debug(`[Supabase][Students][Diag] Coluna ausente ou inacessÃ­vel (${column})`, error);
+        }
+      } catch (e) {
+        console.debug(`[Supabase][Students][Diag] Coluna indisponÃ­vel (${column})`, e);
+      }
+    };
+
     try {
       const { data, error } = await supabase
         .from('information_schema.columns')
@@ -113,7 +128,10 @@ const resolveStudentColumns = async (): Promise<StudentColumns> => {
         }
       }
 
-      ['phone', 'student_type', 'weekly_schedule', 'active'].forEach((col) => available.add(col));
+      await addIfExists('phone');
+      await addIfExists('student_type');
+      await addIfExists('weekly_schedule');
+      await addIfExists('active');
     }
 
     // Garante colunas bÃ¡sicas suspeitas de existirem mesmo quando o info_schema falha.
@@ -246,34 +264,38 @@ async function listStudents(options: { forceRefresh?: boolean; allowCache?: bool
     throw new Error('[Supabase] Credenciais n??o configuradas. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.');
   }
 
+  const trace = traceId('students:list');
   const { forceRefresh = false, allowCache = true } = options;
   const columns = await resolveStudentColumns();
 
   console.info(
-    `[Supabase][Students] list() table=students host=${supabaseHost} configured=${isSupabaseConfigured}`
+    `[Trace ${trace}] [Supabase][Students] list() table=students host=${supabaseHost} configured=${isSupabaseConfigured} forceRefresh=${forceRefresh} allowCache=${allowCache}`
   );
   console.debug(
-    `[Supabase][Students][Diag] colunas_detectadas=${Array.from(columns.available).join(',') || 'desconhecido'} name=${columns.nameColumn} billing=${columns.hasBillingStatus}`
+    `[Trace ${trace}] [Supabase][Students][Diag] colunas_detectadas=${Array.from(columns.available).join(',') || 'desconhecido'} name=${columns.nameColumn} billing=${columns.hasBillingStatus}`
   );
 
   if (columns.available.size > 0) {
     const requiredColumns = ['id', columns.nameColumn, 'phone', 'student_type', 'weekly_schedule', 'active'];
     const missingRequired = requiredColumns.filter((c) => !columns.available.has(c));
     if (missingRequired.length > 0) {
-      console.warn(`[Supabase][Students][Diag] Colunas ausentes no schema: ${missingRequired.join(', ')}`);
+      console.warn(`[Trace ${trace}] [Supabase][Students][Diag] Colunas ausentes no schema: ${missingRequired.join(', ')}`);
     }
     const optionalMissing = ['billing_status', 'fixed_monthly_fee', 'fixed_due_day', 'wellhub_eligibility_status'].filter(
       (c) => !columns.available.has(c)
     );
     if (optionalMissing.length > 0) {
-      console.debug(`[Supabase][Students][Diag] Colunas opcionais ausentes: ${optionalMissing.join(', ')}`);
+      console.debug(`[Trace ${trace}] [Supabase][Students][Diag] Colunas opcionais ausentes: ${optionalMissing.join(', ')}`);
     }
   }
 
   if (!forceRefresh && allowCache) {
     const cached = readCache();
     if (cached) {
-      console.debug(`[Supabase][Students] Usando cache local (${cached.data.length} registros).`);
+      console.debug(`[Trace ${trace}] [Supabase][Students] Usando cache local (${cached.data.length} registros) age=${Math.round((Date.now() - cached.updatedAt) / 1000)}s.`);
+      if (!lastKnownStudents) {
+        lastKnownStudents = { updatedAt: new Date().toISOString(), data: cached.data };
+      }
       return cached.data;
     }
   }
@@ -283,9 +305,9 @@ async function listStudents(options: { forceRefresh?: boolean; allowCache?: bool
       .from('students')
       .select('*', { count: 'exact', head: true });
     if (totalErr) {
-      console.warn('[Supabase][Students][Diag] Falha ao contar total:', totalErr);
+      console.warn(`[Trace ${trace}] [Supabase][Students][Diag] Falha ao contar total:`, totalErr);
     } else {
-      console.info(`[Supabase][Students][Diag] total (sem filtro) = ${totalCount ?? 'n/a'}`);
+      console.info(`[Trace ${trace}] [Supabase][Students][Diag] total (sem filtro) = ${totalCount ?? 'n/a'}`);
     }
 
     if (hasColumn(columns, 'active')) {
@@ -294,15 +316,15 @@ async function listStudents(options: { forceRefresh?: boolean; allowCache?: bool
         .select('*', { count: 'exact', head: true })
         .eq('active', true);
       if (activeErr) {
-        console.warn('[Supabase][Students][Diag] Falha ao contar active=true:', activeErr);
+        console.warn(`[Trace ${trace}] [Supabase][Students][Diag] Falha ao contar active=true:`, activeErr);
       } else {
-        console.info(`[Supabase][Students][Diag] active=true = ${activeOnlyCount ?? 'n/a'}`);
+        console.info(`[Trace ${trace}] [Supabase][Students][Diag] active=true = ${activeOnlyCount ?? 'n/a'}`);
       }
     } else {
-      console.warn('[Supabase][Students][Diag] Coluna active ausente; pulando count active=true.');
+      console.warn(`[Trace ${trace}] [Supabase][Students][Diag] Coluna active ausente; pulando count active=true.`);
     }
   } catch (diagErr) {
-    console.warn('[Supabase][Students][Diag] Erro inesperado ao contar registros:', diagErr);
+    console.warn(`[Trace ${trace}] [Supabase][Students][Diag] Erro inesperado ao contar registros:`, diagErr);
   }
 
   const selectFields: string[] = [];
@@ -321,40 +343,50 @@ async function listStudents(options: { forceRefresh?: boolean; allowCache?: bool
   if (hasColumn(columns, 'active')) {
     query = query.eq('active', true);
   } else {
-    console.warn('[Supabase][Students][Diag] Coluna active ausente; SELECT sem filtro active=true.');
+    console.warn(`[Trace ${trace}] [Supabase][Students][Diag] Coluna active ausente; SELECT sem filtro active=true.`);
   }
 
   const orderColumn = hasColumn(columns, columns.nameColumn) ? columns.nameColumn : null;
   if (orderColumn) {
     query = query.order(orderColumn, { ascending: true });
   } else {
-    console.warn(`[Supabase][Students][Diag] Ordena????o ignorada; coluna de nome n??o dispon??vel (${columns.nameColumn}).`);
+    console.warn(`[Trace ${trace}] [Supabase][Students][Diag] Ordena????o ignorada; coluna de nome n??o dispon??vel (${columns.nameColumn}).`);
   }
 
-  const { data, error } = await query;
+  try {
+    const { data, error } = await query;
 
-  if (error) {
-    console.error('[Supabase][Students] Erro no SELECT:', error);
-    console.debug('[Supabase][Students] SELECT debug', {
-      table: 'students',
-      requestedColumns,
-      detectedColumns: Array.from(columns.available),
-      error,
-    });
-    throw new Error(`Falha ao carregar alunos: ${annotateError(error.message)}`);
+    if (error) {
+      console.error(`[Trace ${trace}] [Supabase][Students] Erro no SELECT:`, error);
+      console.debug(`[Trace ${trace}] [Supabase][Students] SELECT debug`, {
+        table: 'students',
+        requestedColumns,
+        detectedColumns: Array.from(columns.available),
+        error,
+      });
+      throw error;
+    }
+
+    const totalRows = Array.isArray(data) ? data.length : 0;
+    const activeRows = hasColumn(columns, 'active') ? (data || []).filter((row: any) => row.active !== false).length : totalRows;
+    console.debug(`[Trace ${trace}] [Supabase][Students] SELECT retornou total=${totalRows} ativo=${activeRows} inativo=${totalRows - activeRows}.`);
+
+    const mapped = (data || []).map((row: any) => mapFromDb(row, columns));
+    const activeCount = mapped.filter((s) => s.active !== false).length;
+    writeCache(mapped);
+    lastKnownStudents = { updatedAt: new Date().toISOString(), data: mapped };
+    console.debug(
+      `[Trace ${trace}] [Supabase][Students] Fetched da nuvem (${mapped.length}). Ativos=${activeCount} Inativos=${mapped.length - activeCount}`
+    );
+    return mapped;
+  } catch (err: any) {
+    console.error(`[Trace ${trace}] [Supabase][Students] Falha ao carregar alunos (mantendo lastKnownGood):`, err);
+    if (lastKnownStudents) {
+      console.warn(`[Trace ${trace}] [Supabase][Students] Retornando lastKnownGood (${lastKnownStudents.data.length}) atualizado em ${lastKnownStudents.updatedAt}`);
+      return lastKnownStudents.data;
+    }
+    throw new Error(`Falha ao carregar alunos: ${annotateError(err?.message || String(err))}`);
   }
-
-  const totalRows = Array.isArray(data) ? data.length : 0;
-  const activeRows = hasColumn(columns, 'active') ? (data || []).filter((row: any) => row.active !== false).length : totalRows;
-  console.debug(`[Supabase][Students] SELECT retornou total=${totalRows} ativo=${activeRows} inativo=${totalRows - activeRows}.`);
-
-  const mapped = (data || []).map((row: any) => mapFromDb(row, columns));
-  const activeCount = mapped.filter((s) => s.active !== false).length;
-  writeCache(mapped);
-  console.debug(
-    `[Supabase][Students] Fetched da nuvem (${mapped.length}). Ativos=${activeCount} Inativos=${mapped.length - activeCount}`
-  );
-  return mapped;
 }
 
 async function createStudent(payload: Partial<Student>): Promise<Student> {
@@ -362,9 +394,10 @@ async function createStudent(payload: Partial<Student>): Promise<Student> {
     throw new Error('Supabase n??o configurado. Cadastre as chaves no ambiente.');
   }
 
+  const trace = traceId('students:create');
   const columns = await resolveStudentColumns();
-  logWrite('CREATE', { name: payload.name, payload });
-  console.debug(`[Supabase][Students][Diag] INSERT columns name=${columns.nameColumn} billing=${columns.hasBillingStatus}`);
+  logWrite('CREATE', { id: 'pending', name: payload.name, payload });
+  console.debug(`[Trace ${trace}] [Supabase][Students][Diag] INSERT columns name=${columns.nameColumn} billing=${columns.hasBillingStatus}`);
   const dbPayload = mapToDb(
     { ...payload, active: payload.active ?? true, billingStatus: payload.billingStatus ?? BillingStatus.SEM_INFO },
     columns
@@ -373,14 +406,15 @@ async function createStudent(payload: Partial<Student>): Promise<Student> {
 
   if (error) {
     enqueuePending({ op: 'create', payload, timestamp: nowIso() });
-    console.error('[Supabase][Students] Erro no INSERT:', error);
-    console.debug('[Supabase][Students] Erro completo no INSERT:', error);
+    console.error(`[Trace ${trace}] [Supabase][Students] Erro no INSERT:`, error);
+    console.debug(`[Trace ${trace}] [Supabase][Students] Erro completo no INSERT:`, error);
     throw new Error(`N??o foi poss??vel criar o aluno: ${annotateError(error.message)}`);
   }
 
   const student = mapFromDb(data, columns);
   clearCache();
-  console.debug(`[Supabase][Students] Criado no Supabase: ${student.id} (${student.name}).`);
+  lastKnownStudents = { updatedAt: new Date().toISOString(), data: [...(lastKnownStudents?.data ?? []), student] };
+  console.debug(`[Trace ${trace}] [Supabase][Students] Criado no Supabase: ${student.id} (${student.name}).`);
   return student;
 }
 
@@ -389,46 +423,57 @@ async function updateStudent(id: string, payload: Partial<Student>): Promise<Stu
     throw new Error('Supabase n??o configurado. Cadastre as chaves no ambiente.');
   }
 
+  const trace = traceId('students:update');
   const numericId = normalizeId(id);
   const columns = await resolveStudentColumns();
   const dbPayload = mapToDb(payload, columns);
 
   logWrite('UPDATE', { id: String(id), name: payload.name, payload });
-  console.debug(`[Supabase][Students][Diag] UPDATE columns name=${columns.nameColumn} billing=${columns.hasBillingStatus}`);
+  console.debug(`[Trace ${trace}] [Supabase][Students][Diag] UPDATE columns name=${columns.nameColumn} billing=${columns.hasBillingStatus}`);
   const { data, error } = await supabase.from('students').update(dbPayload).eq('id', numericId).select().single();
 
   if (error) {
     enqueuePending({ op: 'update', id, payload, timestamp: nowIso() });
-    console.error('[Supabase][Students] Erro no UPDATE:', error);
-    console.debug('[Supabase][Students] Erro completo no UPDATE:', error);
+    console.error(`[Trace ${trace}] [Supabase][Students] Erro no UPDATE:`, error);
+    console.debug(`[Trace ${trace}] [Supabase][Students] Erro completo no UPDATE:`, error);
     throw new Error(`N??o foi poss??vel atualizar o aluno: ${annotateError(error.message)}`);
   }
 
   const student = mapFromDb(data, columns);
   clearCache();
-  console.debug(`[Supabase][Students] Atualizado: ${student.id} (${student.name}).`);
+  lastKnownStudents = {
+    updatedAt: new Date().toISOString(),
+    data: (lastKnownStudents?.data || []).map((s) => (s.id === student.id ? student : s)),
+  };
+  console.debug(`[Trace ${trace}] [Supabase][Students] Atualizado: ${student.id} (${student.name}).`);
   return student;
 }
 async function deleteStudent(id: string): Promise<void> {
   if (!isSupabaseConfigured) {
-    throw new Error('Supabase não configurado. Cadastre as chaves no ambiente.');
+    throw new Error('Supabase nao configurado. Cadastre as chaves no ambiente.');
   }
+  const trace = traceId('students:delete');
   logWrite('DELETE', { id });
   const numericId = normalizeId(id);
   if (ALLOW_DESTRUCTIVE_STUDENT_DELETE) {
-    console.warn('[Supabase][Students][Guard] Flag ALLOW_DESTRUCTIVE_STUDENT_DELETE=true ativa, mas operação continua como soft-delete (active=false).', { id });
+    console.warn(`[Trace ${trace}] [Supabase][Students][Guard] Flag ALLOW_DESTRUCTIVE_STUDENT_DELETE=true ativa, mas operacao continua como soft-delete (active=false).`, { id });
   }
   const { error } = await supabase.from('students').update({ active: false }).eq('id', numericId);
   if (error) {
     enqueuePending({ op: 'delete', id, timestamp: nowIso() });
-    console.error('[Supabase][Students] Erro no SOFT DELETE (active=false):', error);
-    console.debug('[Supabase][Students] Erro completo no SOFT DELETE (active=false):', error);
-    throw new Error(`N??o foi poss??vel desativar o aluno: ${annotateError(error.message)}`);
+    console.error(`[Trace ${trace}] [Supabase][Students] Erro no SOFT DELETE (active=false):`, error);
+    console.debug(`[Trace ${trace}] [Supabase][Students] Erro completo no SOFT DELETE (active=false):`, error);
+    throw new Error(`Nao foi possivel desativar o aluno: ${annotateError(error.message)}`);
   }
   clearCache();
-  console.debug(`[Supabase][Students] Soft-delete aplicado (active=false): s-${numericId}.`);
+  lastKnownStudents = lastKnownStudents
+    ? {
+        updatedAt: new Date().toISOString(),
+        data: lastKnownStudents.data.map((s) => (s.id === id ? { ...s, active: false } : s)),
+      }
+    : null;
+  console.debug(`[Trace ${trace}] [Supabase][Students] Soft-delete aplicado (active=false): s-${numericId}.`);
 }
-
 async function pushPendingChanges(): Promise<{ pushed: number; errors: string[] }> {
   if (!isSupabaseConfigured) return { pushed: 0, errors: [] };
   const queue = readPending();
@@ -476,3 +521,5 @@ export const studentsService = {
 
 export type StudentsService = typeof studentsService;
 export const getStudentColumns = resolveStudentColumns;
+
+

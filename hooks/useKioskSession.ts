@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { kioskSessionsService, KioskSession, KioskSessionStudent } from '../services/kioskSessionsService';
 
 const POLLING_INTERVAL_MS = 10_000;
+const traceId = (scope: string) => `${scope}-${Date.now().toString(36)}-${Math.random().toString(36).slice(-4)}`;
 
 interface UseKioskSessionResult {
   session: KioskSession | null;
@@ -45,6 +46,8 @@ export const useKioskSession = (): UseKioskSessionResult => {
   const refresh = useCallback(async () => {
     const now = new Date();
     const nowIso = now.toISOString();
+    const trace = traceId('kiosk:refresh');
+    console.debug(`[Trace ${trace}] [Kiosk][Hook] refresh start @${nowIso}`);
 
     try {
       setError(null);
@@ -57,10 +60,12 @@ export const useKioskSession = (): UseKioskSessionResult => {
         if (isWithinWindow(lastSession, now)) {
           setIsReconnecting(true);
           setError('Reconectando ao Supabase...');
+          console.warn(`[Trace ${trace}] [Kiosk][Hook] Sessao anterior dentro da janela, aguardando reconexao.`);
           setLoading(false);
           return;
         }
         applyState(null, []);
+        console.info(`[Trace ${trace}] [Kiosk][Hook] Nenhuma sessao ativa encontrada.`);
         setLastSync(new Date());
         setLoading(false);
         return;
@@ -71,26 +76,27 @@ export const useKioskSession = (): UseKioskSessionResult => {
       try {
         const attendees = await kioskSessionsService.getSessionStudents(activeSession.id);
         console.debug(
-          `[Kiosk][Hook] refresh @${nowIso} session=${activeSession.id} students=${attendees.length} changed=${sessionChanged}`
+          `[Trace ${trace}] [Kiosk][Hook] refresh @${nowIso} session=${activeSession.id} students=${attendees.length} changed=${sessionChanged}`
         );
         applyState(activeSession, attendees);
         setLastSync(new Date());
         setLoading(false);
       } catch (studentErr: any) {
-        console.error('[Kiosk] Falha ao carregar alunos da sessão', studentErr);
+        console.error(`[Trace ${trace}] [Kiosk] Falha ao carregar alunos da sessao`, studentErr);
         const stillActive = !sessionChanged && isWithinWindow(lastSessionRef.current, now);
         if (stillActive) {
           setIsReconnecting(true);
           setError(studentErr?.message || 'Reconectando ao Supabase...');
+          console.warn(`[Trace ${trace}] [Kiosk][Hook] Mantendo lista anterior durante reconexao.`);
           setLoading(false);
           return;
         }
         applyState(activeSession, []);
-        setError(studentErr?.message || 'Não foi possível carregar alunos da sessão.');
+        setError(studentErr?.message || 'Nao foi possivel carregar alunos da sessao.');
         setLoading(false);
       }
     } catch (e: any) {
-      console.error('[Kiosk] Falha ao atualizar sessão ativa', e);
+      console.error(`[Trace ${trace}] [Kiosk] Falha ao atualizar sessao ativa`, e);
       const lastSession = lastSessionRef.current;
       if (isWithinWindow(lastSession, new Date())) {
         setIsReconnecting(true);
@@ -99,7 +105,7 @@ export const useKioskSession = (): UseKioskSessionResult => {
         return;
       }
       applyState(null, []);
-      setError(e?.message || 'Não foi possível carregar a sessão ativa.');
+      setError(e?.message || 'Nao foi possivel carregar a sessao ativa.');
       setLoading(false);
     }
   }, [applyState]);
@@ -115,7 +121,10 @@ export const useKioskSession = (): UseKioskSessionResult => {
   }, [refresh]);
 
   const confirmAttendance = useCallback(async (recordId: string) => {
+    const trace = traceId('kiosk:confirmAction');
+    console.debug(`[Trace ${trace}] [Kiosk][Hook] confirmAttendance start record=${recordId}`);
     const confirmedAt = await kioskSessionsService.confirmAttendance(recordId);
+    console.debug(`[Trace ${trace}] [Kiosk][Hook] confirmAttendance ok record=${recordId} confirmed_at=${confirmedAt}`);
     setStudents((prev) => {
       const updated = prev.map((student) =>
         student.id === recordId ? { ...student, status: 'confirmed', confirmed_at: confirmedAt } : student
@@ -140,3 +149,4 @@ export const useKioskSession = (): UseKioskSessionResult => {
     [session, students, loading, error, lastSync, isReconnecting, refresh, confirmAttendance]
   );
 };
+
