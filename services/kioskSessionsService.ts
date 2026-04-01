@@ -25,12 +25,6 @@ const ensureSupabase = () => {
   }
 };
 
-const isRelationMissing = (error: any) => {
-  const code = error?.code || error?.details || error?.hint;
-  const msg = (error?.message || '').toLowerCase();
-  return code === '42P01' || msg.includes('does not exist') || msg.includes('relation') || msg.includes('table');
-};
-
 const traceId = (scope: string) => `${scope}-${Date.now().toString(36)}-${Math.random().toString(36).slice(-4)}`;
 
 const normalizeStudentId = (id: string | number): number => {
@@ -67,15 +61,11 @@ export const kioskSessionsService = {
         .limit(1);
 
       if (error) {
-        console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao buscar sessão ativa`, error);
-        if (isRelationMissing(error)) {
-          console.warn(`[Trace ${trace}] [Kiosk][Supabase] Tabela kiosk_sessions ausente. Retornando null.`);
-          return null;
-        }
+        console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao buscar sessÃ£o ativa`, error);
         throw error;
       }
       if (!data || data.length === 0) {
-        console.info(`[Trace ${trace}] [Kiosk][Supabase] Nenhuma sessão ativa encontrada.`);
+        console.info(`[Trace ${trace}] [Kiosk][Supabase] Nenhuma sessÃ£o ativa encontrada.`);
         return null;
       }
 
@@ -85,8 +75,7 @@ export const kioskSessionsService = {
       );
       return session;
     } catch (e) {
-      console.error(`[Trace ${trace}] [Kiosk][Supabase] Falha inesperada ao resolver sessão ativa`, e);
-      if (isRelationMissing(e)) return null;
+      console.error(`[Trace ${trace}] [Kiosk][Supabase] Falha inesperada ao resolver sessÃ£o ativa`, e);
       throw e;
     }
   },
@@ -126,10 +115,6 @@ export const kioskSessionsService = {
 
       if (error) {
         console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao carregar alunos da sessao ${sessionId}`, error);
-        if (isRelationMissing(error)) {
-          console.warn(`[Trace ${trace}] [Kiosk][Supabase] Tabela kiosk_session_students ausente. Retornando lista vazia.`);
-          return [];
-        }
         throw error;
       }
 
@@ -153,7 +138,6 @@ export const kioskSessionsService = {
       return mapped;
     } catch (e) {
       console.error(`[Trace ${trace}] [Kiosk][Supabase] Falha inesperada ao listar alunos da sessao ${sessionId}`, e);
-      if (isRelationMissing(e)) return [];
       throw e;
     }
   },
@@ -163,7 +147,6 @@ export const kioskSessionsService = {
     startAt: Date;
     studentIds: Array<string | number>;
     isActive?: boolean;
-    allowRemovals?: boolean;
   }): Promise<KioskSession> {
     ensureSupabase();
 
@@ -179,92 +162,80 @@ export const kioskSessionsService = {
       `[Trace ${trace}] [Kiosk][Supabase] upsert sessionId=${sessionId ?? 'new'} start=${start_at} end=${end_at} host=${supabaseHost}`
     );
 
-    try {
-      if (sessionId) {
-        const { data, error } = await supabase
-          .from('kiosk_sessions')
-          .update(payload)
-          .eq('id', sessionId)
-          .select('id,title,start_at,end_at,is_active')
-          .single();
+    if (sessionId) {
+      const { data, error } = await supabase
+        .from('kiosk_sessions')
+        .update(payload)
+        .eq('id', sessionId)
+        .select('id,title,start_at,end_at,is_active')
+        .single();
 
-        if (error) {
-          console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao atualizar sessao ${sessionId}`, error);
-          throw error;
-        }
-        sessionId = String(data.id);
-      } else {
-        const { data, error } = await supabase
-          .from('kiosk_sessions')
-          .insert({ ...payload })
-          .select('id,title,start_at,end_at,is_active')
-          .single();
-
-        if (error) {
-          console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao criar sessao`, error);
-          throw error;
-        }
-        sessionId = String(data.id);
+      if (error) {
+        console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao atualizar sessao ${sessionId}`, error);
+        throw error;
       }
+      sessionId = String(data.id);
+    } else {
+      const { data, error } = await supabase
+        .from('kiosk_sessions')
+        .insert({ ...payload })
+        .select('id,title,start_at,end_at,is_active')
+        .single();
 
-      const uniqueStudentIds = Array.from(new Set(params.studentIds.map(normalizeStudentId)));
-
-      const { data: existingLinks, error: existingError } = await supabase
-        .from('kiosk_session_students')
-        .select('student_id')
-        .eq('session_id', sessionId);
-
-      if (existingError) {
-        console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao ler vinculos atuais da sessao ${sessionId}`, existingError);
-        throw existingError;
+      if (error) {
+        console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao criar sessao`, error);
+        throw error;
       }
-
-      const existingIds = new Set((existingLinks || []).map((row: any) => Number(row.student_id)));
-      const toInsert = uniqueStudentIds.filter((id) => !existingIds.has(id));
-      const toRemove = Array.from(existingIds).filter((id) => !uniqueStudentIds.includes(id));
-
-      if (toInsert.length > 0) {
-        const rows = toInsert.map((studentId) => ({
-          session_id: sessionId,
-          student_id: studentId,
-          status: 'scheduled',
-        }));
-        const { error: insertError } = await supabase.from('kiosk_session_students').insert(rows);
-        if (insertError) {
-          console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao inserir vinculos`, insertError);
-          throw insertError;
-        }
-      }
-
-      if (toRemove.length > 0 && params.allowRemovals) {
-        console.warn(`[Trace ${trace}] [Kiosk][Guard] Removendo ${toRemove.length} vinculos de alunos da sessao ${sessionId}`);
-        const { error: deleteError } = await supabase
-          .from('kiosk_session_students')
-          .delete()
-          .eq('session_id', sessionId)
-          .in('student_id', toRemove);
-        if (deleteError) {
-          console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao remover vinculos`, deleteError);
-          throw deleteError;
-        }
-      } else if (toRemove.length > 0) {
-        console.info(
-          `[Trace ${trace}] [Kiosk][Guard] Mantendo ${toRemove.length} alunos existentes na sessao ${sessionId} (remocao desabilitada).`
-        );
-      }
-
-      console.debug(
-        `[Trace ${trace}] [Kiosk][Supabase] upsert session=${sessionId} add=${toInsert.length} remove=${toRemove.length} total=${uniqueStudentIds.length} existing=${existingIds.size}`
-      );
-
-      return mapSessionRow({ id: sessionId, ...payload });
-    } catch (e) {
-      console.error(`[Trace ${trace}] [Kiosk][Supabase] Falha ao upsert da sessão`, e);
-      if (isRelationMissing(e)) {
-        throw new Error('kiosk_sessions_missing');
-      }
-      throw e;
+      sessionId = String(data.id);
     }
+
+    const uniqueStudentIds = Array.from(new Set(params.studentIds.map(normalizeStudentId)));
+
+    const { data: existingLinks, error: existingError } = await supabase
+      .from('kiosk_session_students')
+      .select('student_id')
+      .eq('session_id', sessionId);
+
+    if (existingError) {
+      console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao ler vinculos atuais da sessao ${sessionId}`, existingError);
+      throw existingError;
+    }
+
+    const existingIds = new Set((existingLinks || []).map((row: any) => Number(row.student_id)));
+    const toInsert = uniqueStudentIds.filter((id) => !existingIds.has(id));
+    const toRemove = Array.from(existingIds).filter((id) => !uniqueStudentIds.includes(id));
+
+    if (toInsert.length > 0) {
+      const rows = toInsert.map((studentId) => ({
+        session_id: sessionId,
+        student_id: studentId,
+        status: 'scheduled',
+      }));
+      const { error: insertError } = await supabase.from('kiosk_session_students').insert(rows);
+      if (insertError) {
+        console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao inserir vinculos`, insertError);
+        throw insertError;
+      }
+    }
+
+    if (toRemove.length > 0) {
+      console.warn(`[Trace ${trace}] [Kiosk][Guard] Removendo ${toRemove.length} vinculos de alunos da sessao ${sessionId}`);
+      const { error: deleteError } = await supabase
+        .from('kiosk_session_students')
+        .delete()
+        .eq('session_id', sessionId)
+        .in('student_id', toRemove);
+      if (deleteError) {
+        console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao remover vinculos`, deleteError);
+        throw deleteError;
+      }
+    }
+
+    console.debug(
+      `[Trace ${trace}] [Kiosk][Supabase] upsert session=${sessionId} add=${toInsert.length} remove=${toRemove.length} total=${uniqueStudentIds.length} existing=${existingIds.size}`
+    );
+
+    return mapSessionRow({ id: sessionId, ...payload });
   },
   async confirmAttendance(recordId: string): Promise<string> {
     ensureSupabase();
@@ -279,25 +250,13 @@ export const kioskSessionsService = {
 
     if (error) {
       console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao confirmar presenca record=${recordId}`, error);
-      if (isRelationMissing(error)) throw new Error('kiosk_session_students_missing');
       throw error;
     }
     return confirmedAt;
   },
-  async resetAttendance(recordId: string): Promise<void> {
-    ensureSupabase();
-    const trace = traceId('kiosk:resetAttendance');
-    console.debug(`[Trace ${trace}] [Kiosk][Supabase] resetAttendance record=${recordId}`);
-    const { error } = await supabase
-      .from('kiosk_session_students')
-      .update({ status: 'scheduled', confirmed_at: null })
-      .eq('id', recordId);
-    if (error) {
-      console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao resetar presenca record=${recordId}`, error);
-      if (isRelationMissing(error)) throw new Error('kiosk_session_students_missing');
-      throw error;
-    }
-  },
 };
 
-export default kioskSessionsService;
+
+
+
+

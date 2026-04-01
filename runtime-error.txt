@@ -1,0 +1,3 @@
+[console] info [Supabase] Config detectada host=iueardjfyhjcjczpwlxz.supabase.co
+[console] info [Supabase] Config detectada host=iueardjfyhjcjczpwlxz.supabase.co
+[console] info [Supabase] Config detectada host=iueardjfyhjcjczpwlxz.supabase.co
