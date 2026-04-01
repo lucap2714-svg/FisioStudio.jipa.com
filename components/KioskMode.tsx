@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { DateUtils } from '../services/db';
+import { DateUtils, db } from '../services/db';
 import { useKioskSession } from '../hooks/useKioskSession';
-import { KioskSessionStudent } from '../services/kioskSessionsService';
+import { kioskSessionsService, KioskSessionStudent } from '../services/kioskSessionsService';
+import { Student } from '../types';
 
 interface KioskModeProps {
   onExit: () => void;
@@ -14,7 +15,8 @@ const Icons = {
   Lock: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
   Refresh: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>,
   Fullscreen: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>,
-  Calendar: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+  Calendar: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+  Plus: () => <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 };
 
 const DEFAULT_ADMIN_PIN = '1234';
@@ -35,6 +37,11 @@ export default function KioskMode({ onExit }: KioskModeProps) {
   const [isConfirming, setIsConfirming] = useState(false);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [qrOpenedMap, setQrOpenedMap] = useState<Record<string, boolean>>({});
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [allStudents, setAllStudents] = useState<Student[]>([]);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [isSavingSession, setIsSavingSession] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const { session: activeSession, students, loading, error, isReconnecting, refresh, confirmAttendance } = useKioskSession();
 
@@ -55,9 +62,80 @@ export default function KioskMode({ onExit }: KioskModeProps) {
     }
   }, [activeSession]);
 
+  useEffect(() => {
+    if (!isAddModalOpen) return;
+    if (allStudents.length > 0) return;
+    (async () => {
+      try {
+        setLoadError(null);
+        const list = await db.getStudents(true);
+        setAllStudents(list);
+      } catch (e: any) {
+        console.error('[Kiosk] Falha ao carregar alunos para sugestão', e);
+        setLoadError(e?.message || 'Não foi possível carregar alunos.');
+      }
+    })();
+  }, [isAddModalOpen, allStudents.length]);
+
+  useEffect(() => {
+    if (!isAddModalOpen) return;
+    if (selectedStudentIds.length === 0 && suggestedStudents.length > 0) {
+      setSelectedStudentIds(suggestedStudents.map((s) => s.id));
+    }
+  }, [isAddModalOpen, suggestedStudents, selectedStudentIds.length]);
+
   const sessionStartLabel = formatTime(activeSession?.start_at);
   const sessionEndLabel = formatTime(activeSession?.end_at);
   const hasSession = !!activeSession;
+
+  const normalizeDay = (value: string = '') =>
+    value
+      .toLowerCase()
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ');
+
+  const normalizeTimeSlot = (value: string = '') => {
+    const digits = value.replace(/\D/g, '');
+    if (!digits) return '';
+    const hours = digits.slice(0, 2) || '00';
+    const minutes = (digits.slice(2, 4) || '00').padEnd(2, '0');
+    const h = Math.min(23, parseInt(hours, 10));
+    const m = Math.min(59, parseInt(minutes, 10));
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  };
+
+  const getSuggestedStudents = (list: Student[], targetDay: string, targetTime: string) => {
+    const normalizedDay = normalizeDay(targetDay);
+    const normalizedTime = normalizeTimeSlot(targetTime);
+    if (!normalizedDay || !normalizedTime) return [];
+    return list.filter((s) => {
+      const schedule = Array.isArray(s.weeklySchedule) ? s.weeklySchedule : [];
+      return schedule.some(
+        (sc) => normalizeDay(sc.day) === normalizedDay && normalizeTimeSlot(sc.time) === normalizedTime
+      );
+    });
+  };
+
+  const currentSlot = useMemo(() => {
+    if (activeSession?.start_at) return new Date(activeSession.start_at);
+    const now = new Date();
+    const rounded = new Date(now);
+    rounded.setMinutes(0, 0, 0);
+    return rounded;
+  }, [activeSession?.start_at]);
+
+  const slotDayName = useMemo(() => DateUtils.getDayName(currentSlot), [currentSlot]);
+  const slotTime = useMemo(
+    () => `${String(currentSlot.getHours()).padStart(2, '0')}:${String(currentSlot.getMinutes()).padStart(2, '0')}`,
+    [currentSlot]
+  );
+
+  const suggestedStudents = useMemo(
+    () => getSuggestedStudents(allStudents, slotDayName, slotTime),
+    [allStudents, slotDayName, slotTime]
+  );
 
   const currentStudentsList = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -90,8 +168,20 @@ export default function KioskMode({ onExit }: KioskModeProps) {
     setActiveCheckinItem(student);
   };
 
-  const handleRetryQr = (student: KioskSessionStudent) => {
+  const handleRetryQr = async (student: KioskSessionStudent) => {
     if (!activeSession) return;
+    const isConfirmed = (student.status || '').toLowerCase() === 'confirmed';
+    if (isConfirmed) {
+      try {
+        await kioskSessionsService.resetAttendance(student.id);
+        await refresh();
+      } catch (e) {
+        console.error('[Kiosk] Falha ao resetar presença', e);
+      }
+      setQrOpenedMap(prev => ({ ...prev, [student.id]: true }));
+      setActiveCheckinItem({ ...student, status: 'scheduled', confirmed_at: null });
+      return;
+    }
     setQrOpenedMap(prev => ({ ...prev, [student.id]: true }));
     setActiveCheckinItem({ ...student });
   };
@@ -118,6 +208,39 @@ export default function KioskMode({ onExit }: KioskModeProps) {
     } else {
       setPinValue('');
       alert('PIN Administrativo incorreto.');
+    }
+  };
+
+  const toggleStudentSelection = (id: string) => {
+    setSelectedStudentIds(prev => (prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]));
+  };
+
+  const handleSaveSessionStudents = async () => {
+    if (isSavingSession || selectedStudentIds.length === 0) return;
+    setIsSavingSession(true);
+    try {
+      const baseIds = students.map(s => Number(s.student_id));
+      const selectedNumeric = selectedStudentIds
+        .map(id => parseInt(String(id).replace(/^s[-_]?/, ''), 10))
+        .filter(n => !Number.isNaN(n));
+      const allIds = Array.from(new Set([...baseIds, ...selectedNumeric]));
+
+      await kioskSessionsService.upsertSessionWithStudents({
+        id: activeSession?.id,
+        startAt: currentSlot,
+        studentIds: allIds,
+        isActive: true,
+        allowRemovals: false
+      });
+
+      await refresh();
+      setIsAddModalOpen(false);
+      setSelectedStudentIds([]);
+    } catch (e: any) {
+      console.error('[Kiosk] Falha ao salvar sessão/alunos', e);
+      alert(e?.message || 'Não foi possível adicionar alunos.');
+    } finally {
+      setIsSavingSession(false);
     }
   };
 
@@ -216,6 +339,16 @@ export default function KioskMode({ onExit }: KioskModeProps) {
           />
         </div>
 
+        <div className="mb-6 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setIsAddModalOpen(true)}
+            className="inline-flex items-center gap-3 px-6 py-4 rounded-[2rem] bg-white shadow-premium border border-brand-light/50 text-brand-primary font-black uppercase tracking-[0.2em] text-xs hover:shadow-glow active:scale-95 transition-all"
+          >
+            <Icons.Plus /> Adicionar pessoas
+          </button>
+        </div>
+
         {hasSession && (
           <div className="mb-6 flex flex-wrap items-center gap-3 text-brand-dark font-black uppercase text-[10px] tracking-[0.3em]">
             <span className="px-4 py-2 bg-white rounded-2xl shadow-inner">
@@ -290,6 +423,114 @@ export default function KioskMode({ onExit }: KioskModeProps) {
       </main>
 
       {renderCheckinModal()}
+
+      {isAddModalOpen && (
+        <div
+          className="fixed inset-0 z-[550] bg-slate-900/80 backdrop-blur-xl flex items-center justify-center p-6"
+          onClick={() => setIsAddModalOpen(false)}
+        >
+          <div
+            className="bg-white w-full max-w-5xl rounded-[3rem] p-8 md:p-10 space-y-6 shadow-2xl border-8 border-brand-light/20 max-h-[90vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-dark/60">Sessão do horário</p>
+                <h3 className="text-3xl font-black text-slate-800 tracking-tight">
+                  {slotDayName} • {slotTime}
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsAddModalOpen(false)}
+                className="p-4 bg-slate-100 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors"
+              >
+                <Icons.X />
+              </button>
+            </div>
+
+            {loadError && (
+              <div className="bg-red-50 border-2 border-red-200 text-red-700 rounded-2xl px-4 py-3 text-sm font-bold">
+                {loadError}
+              </div>
+            )}
+
+            <div className="flex flex-col md:flex-row gap-6 h-full">
+              <div className="md:w-1/3 bg-brand-bg rounded-2xl p-4 border border-brand-light/40 overflow-y-auto max-h-[60vh]">
+                <h4 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500 mb-3">Sugeridos</h4>
+                {suggestedStudents.length === 0 ? (
+                  <p className="text-sm text-slate-500">Nenhum aluno sugerido para este horário.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {suggestedStudents.map((s) => {
+                      const isSelected = selectedStudentIds.includes(s.id);
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => toggleStudentSelection(s.id)}
+                          className={`w-full text-left px-4 py-3 rounded-2xl border font-black text-sm transition-all ${
+                            isSelected
+                              ? 'border-brand-primary bg-white shadow-glow text-brand-primary'
+                              : 'border-brand-light/50 bg-white hover:border-brand-primary/50'
+                          }`}
+                        >
+                          {s.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex-1 overflow-y-auto max-h-[60vh]">
+                <h4 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500 mb-3">Todos os alunos</h4>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {allStudents.map((s) => {
+                    const isSelected = selectedStudentIds.includes(s.id);
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => toggleStudentSelection(s.id)}
+                        className={`w-full text-left px-4 py-3 rounded-2xl border font-black text-sm transition-all ${
+                          isSelected
+                            ? 'border-brand-primary bg-white shadow-glow text-brand-primary'
+                            : 'border-brand-light/50 bg-white hover:border-brand-primary/50'
+                        }`}
+                      >
+                        {s.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">
+                Selecionados: {selectedStudentIds.length}
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="px-5 py-3 rounded-2xl bg-slate-100 text-slate-600 font-black uppercase text-[10px] tracking-widest"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveSessionStudents}
+                  disabled={isSavingSession || selectedStudentIds.length === 0}
+                  className={`px-6 py-3 rounded-2xl font-black uppercase text-[10px] tracking-[0.25em] shadow-glow ${
+                    isSavingSession || selectedStudentIds.length === 0
+                      ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                      : 'bg-brand-primary text-white'
+                  }`}
+                >
+                  {isSavingSession ? 'Salvando...' : 'Adicionar à sessão'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isPinModalOpen && (
         <div className="fixed inset-0 z-[600] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-6" onClick={() => setIsPinModalOpen(false)}>
