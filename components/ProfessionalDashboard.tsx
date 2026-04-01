@@ -9,6 +9,7 @@ import TrainingPlanView from './TrainingPlanView';
 import AssessmentFormView from './AssessmentFormView';
 import ReportsView from './ReportsView';
 import SettingsView from './SettingsView';
+import FeedbackBoard from './FeedbackBoard';
 import KioskMode from './KioskMode';
 import { db } from '../services/db';
 
@@ -163,6 +164,10 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ user, onL
                     <span className="text-[11px] font-black uppercase tracking-widest text-slate-700">{item.l}</span>
                   </button>
                ))}
+            </div>
+
+            <div className="px-4 md:px-0">
+              <FeedbackBoard currentUser={user} />
             </div>
           </div>
         );
