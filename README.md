@@ -18,3 +18,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/116YpUlrXtw7VUXRh7KagRA
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Feedback Board (Supabase)
+- Nova tabela `public.feedback_messages` para registrar sugestões (migration: `supabase/feedback_messages.sql`).
+- Se o projeto estiver com RLS ativo, habilite políticas permissivas para anon conforme comentários no arquivo SQL acima.
