@@ -44,6 +44,15 @@ export default function KioskMode({ onExit }: KioskModeProps) {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const { session: activeSession, students, loading, error, isReconnecting, refresh, confirmAttendance } = useKioskSession();
+  console.debug('[Kiosk][Render] start', {
+    sessionId: activeSession?.id || null,
+    start: activeSession?.start_at,
+    end: activeSession?.end_at,
+    students: Array.isArray(students) ? students.length : 'n/a',
+    loading,
+    error,
+    reconnecting: isReconnecting
+  });
 
   useEffect(() => {
     localStorage.setItem('fisiostudio_kiosk_locked', 'true');
@@ -138,8 +147,9 @@ export default function KioskMode({ onExit }: KioskModeProps) {
   );
 
   const currentStudentsList = useMemo(() => {
+    const base = Array.isArray(students) ? students : [];
     const term = searchTerm.trim().toLowerCase();
-    return students
+    return base
       .map(student => ({
         ...student,
         normalizedStatus: (student.status || 'scheduled').toLowerCase(),

@@ -138,7 +138,7 @@ export const useKioskSession = (): UseKioskSessionResult => {
   return useMemo(
     () => ({
       session,
-      students,
+      students: Array.isArray(students) ? students : [],
       loading,
       error,
       lastSync,
