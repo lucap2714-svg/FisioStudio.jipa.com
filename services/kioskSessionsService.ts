@@ -147,6 +147,7 @@ export const kioskSessionsService = {
     startAt: Date;
     studentIds: Array<string | number>;
     isActive?: boolean;
+    allowRemovals?: boolean;
   }): Promise<KioskSession> {
     ensureSupabase();
 
@@ -218,7 +219,7 @@ export const kioskSessionsService = {
       }
     }
 
-    if (toRemove.length > 0) {
+    if (toRemove.length > 0 && params.allowRemovals) {
       console.warn(`[Trace ${trace}] [Kiosk][Guard] Removendo ${toRemove.length} vinculos de alunos da sessao ${sessionId}`);
       const { error: deleteError } = await supabase
         .from('kiosk_session_students')
@@ -229,6 +230,10 @@ export const kioskSessionsService = {
         console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao remover vinculos`, deleteError);
         throw deleteError;
       }
+    } else if (toRemove.length > 0) {
+      console.info(
+        `[Trace ${trace}] [Kiosk][Guard] Mantendo ${toRemove.length} alunos existentes na sessao ${sessionId} (remocao desabilitada).`
+      );
     }
 
     console.debug(
@@ -253,6 +258,19 @@ export const kioskSessionsService = {
       throw error;
     }
     return confirmedAt;
+  },
+  async resetAttendance(recordId: string): Promise<void> {
+    ensureSupabase();
+    const trace = traceId('kiosk:resetAttendance');
+    console.debug(`[Trace ${trace}] [Kiosk][Supabase] resetAttendance record=${recordId}`);
+    const { error } = await supabase
+      .from('kiosk_session_students')
+      .update({ status: 'scheduled', confirmed_at: null })
+      .eq('id', recordId);
+    if (error) {
+      console.error(`[Trace ${trace}] [Kiosk][Supabase] Erro ao resetar presenca record=${recordId}`, error);
+      throw error;
+    }
   },
 };
 

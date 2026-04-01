@@ -163,6 +163,7 @@ const AddClassModal = ({ isOpen, onClose, students, onClassCreated }: { isOpen: 
           title: `Sessão ${time}`,
           studentIds: selectedStudentIds,
           isActive: true,
+          allowRemovals: true,
         });
         sessionId = supabaseSession.id;
       }
