@@ -52,8 +52,13 @@ const ProfessionalDashboard: React.FC<ProfessionalDashboardProps> = ({ user, onL
 
   useEffect(() => {
     const fetchStats = async () => {
-      const students = await db.getStudents();
-      setTotalStudents(students.length);
+      try {
+        const students = await db.getStudents();
+        setTotalStudents(students.length);
+      } catch (e) {
+        console.error('[Dashboard] Falha ao carregar total de alunos', e);
+        setTotalStudents(0);
+      }
     };
     fetchStats();
     return db.onUpdate?.(fetchStats);

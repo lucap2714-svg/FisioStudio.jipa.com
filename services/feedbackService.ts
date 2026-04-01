@@ -42,6 +42,12 @@ const logPossibleRls = (error: any, trace: string) => {
   } catch (e) {}
 };
 
+const isRelationMissing = (error: any) => {
+  const code = error?.code || error?.details || error?.hint;
+  const msg = (error?.message || '').toLowerCase();
+  return code === '42P01' || msg.includes('does not exist') || msg.includes('relation') || msg.includes('table');
+};
+
 const safeDeviceInfo = () => {
   try {
     const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
@@ -66,6 +72,10 @@ export const feedbackService = {
     if (error) {
       logPossibleRls(error, trace);
       console.error(`[Trace ${trace}] [Feedback][Supabase] Erro ao listar feedback`, error);
+      if (isRelationMissing(error)) {
+        console.warn(`[Trace ${trace}] [Feedback][Supabase] Tabela feedback_messages ausente. Retornando lista vazia.`);
+        return [];
+      }
       throw error;
     }
 
@@ -94,6 +104,9 @@ export const feedbackService = {
     if (error) {
       logPossibleRls(error, trace);
       console.error(`[Trace ${trace}] [Feedback][Supabase] Erro ao salvar feedback`, error);
+      if (isRelationMissing(error)) {
+        throw new Error('feedback_unavailable');
+      }
       throw error;
     }
 
@@ -117,6 +130,9 @@ export const feedbackService = {
     if (error) {
       logPossibleRls(error, trace);
       console.error(`[Trace ${trace}] [Feedback][Supabase] Erro ao marcar como enviado id=${id}`, error);
+      if (isRelationMissing(error)) {
+        throw new Error('feedback_unavailable');
+      }
       throw error;
     }
 

@@ -45,6 +45,7 @@ const FeedbackBoard: React.FC<FeedbackBoardProps> = ({ currentUser }) => {
   const [messages, setMessages] = useState<FeedbackMessage[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState<boolean>(false);
   const [messageText, setMessageText] = useState<string>('');
   const [saving, setSaving] = useState<boolean>(false);
   const [sendingId, setSendingId] = useState<number | null>(null);
@@ -54,12 +55,19 @@ const FeedbackBoard: React.FC<FeedbackBoardProps> = ({ currentUser }) => {
   const fetchMessages = async () => {
     setLoading(true);
     setError(null);
+    setUnavailable(false);
     try {
       const data = await feedbackService.listFeedback(20);
       setMessages(data);
     } catch (e: any) {
       console.error('[Feedback] Falha ao carregar mensagens', e);
-      setError('Não foi possível carregar feedback agora');
+      const msg = e?.message || '';
+      if (msg === 'feedback_unavailable' || msg.toLowerCase().includes('relation') || msg.toLowerCase().includes('table')) {
+        setUnavailable(true);
+        setError(null);
+      } else {
+        setError('Não foi possível carregar feedback agora');
+      }
     } finally {
       setLoading(false);
     }
@@ -88,7 +96,13 @@ const FeedbackBoard: React.FC<FeedbackBoardProps> = ({ currentUser }) => {
       setMessages((prev) => [created, ...prev].slice(0, 20));
     } catch (e: any) {
       console.error('[Feedback] Falha ao salvar', e);
-      setError(e?.message || 'Erro ao salvar feedback');
+      const msg = e?.message || '';
+      if (msg === 'feedback_unavailable') {
+        setUnavailable(true);
+        setError(null);
+      } else {
+        setError(msg || 'Erro ao salvar feedback');
+      }
     }
     const url = `https://wa.me/92993215720?text=${encodeURIComponent(payload)}`;
     try {
@@ -166,6 +180,7 @@ const FeedbackBoard: React.FC<FeedbackBoardProps> = ({ currentUser }) => {
         </div>
       )}
 
+      {!unavailable && (
       <div className="space-y-4">
         <label className="block text-[11px] font-black uppercase tracking-[0.25em] text-brand-dark/70">
           Nova sugestão
@@ -195,6 +210,7 @@ const FeedbackBoard: React.FC<FeedbackBoardProps> = ({ currentUser }) => {
           </button>
         </div>
       </div>
+      )}
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -206,7 +222,9 @@ const FeedbackBoard: React.FC<FeedbackBoardProps> = ({ currentUser }) => {
           </span>
         </div>
 
-        {loading ? (
+        {unavailable ? (
+          <div className="text-sm text-slate-500">Recurso indisponível no momento.</div>
+        ) : loading ? (
           <div className="text-sm text-slate-500">Carregando feedback...</div>
         ) : messages.length === 0 ? (
           <div className="text-sm text-slate-500">Nenhuma mensagem registrada ainda.</div>
