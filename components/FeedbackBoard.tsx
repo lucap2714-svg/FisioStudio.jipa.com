@@ -49,7 +49,7 @@ const FeedbackBoard: React.FC<FeedbackBoardProps> = ({ currentUser }) => {
   const [saving, setSaving] = useState<boolean>(false);
   const [sendingId, setSendingId] = useState<number | null>(null);
 
-  const isValid = useMemo(() => messageText.trim().length >= 5, [messageText]);
+  const isValid = useMemo(() => messageText.trim().length > 0, [messageText]);
 
   const fetchMessages = async () => {
     setLoading(true);
@@ -69,25 +69,41 @@ const FeedbackBoard: React.FC<FeedbackBoardProps> = ({ currentUser }) => {
     fetchMessages();
   }, []);
 
-  const handleSave = async () => {
-    if (!isValid || saving) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const created = await feedbackService.createFeedback(messageText.trim(), currentUser?.name);
-      setMessageText('');
-      setMessages((prev) => [created, ...prev].slice(0, 20));
+  const handleSendNew = async () => {
+    if (saving) return;
+    const trimmed = messageText.trim();
+    if (!trimmed) {
       try {
-        alert('Salvo');
+        alert('Digite uma sugestão antes de enviar.');
       } catch (e) {
         console.debug('[Feedback] Alert indisponível', e);
       }
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const payload = `[Sugestão FisioStudio]\nData/Hora: ${new Date().toLocaleString('pt-BR')}\nTexto: ${trimmed}`;
+    try {
+      const created = await feedbackService.createFeedback(trimmed, currentUser?.name);
+      setMessages((prev) => [created, ...prev].slice(0, 20));
     } catch (e: any) {
       console.error('[Feedback] Falha ao salvar', e);
       setError(e?.message || 'Erro ao salvar feedback');
-    } finally {
-      setSaving(false);
     }
+    const url = `https://wa.me/92993215720?text=${encodeURIComponent(payload)}`;
+    try {
+      window.open(url, '_blank');
+    } catch (e) {
+      console.debug('[Feedback] window.open falhou, redirecionando', e);
+      window.location.href = url;
+    }
+    setMessageText('');
+    try {
+      alert('Sugestão pronta para envio no WhatsApp');
+    } catch (e) {
+      console.debug('[Feedback] Alert indisponível', e);
+    }
+    setSaving(false);
   };
 
   const handleSend = async (msg: FeedbackMessage) => {
@@ -167,7 +183,7 @@ const FeedbackBoard: React.FC<FeedbackBoardProps> = ({ currentUser }) => {
             {messageText.trim().length}/500
           </p>
           <button
-            onClick={handleSave}
+            onClick={handleSendNew}
             disabled={!isValid || saving}
             className={`inline-flex items-center gap-2 px-4 sm:px-6 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all ${
               !isValid || saving
@@ -175,7 +191,7 @@ const FeedbackBoard: React.FC<FeedbackBoardProps> = ({ currentUser }) => {
                 : 'bg-brand-primary text-white shadow-glow hover:shadow-xl'
             }`}
           >
-            {saving ? 'Salvando...' : 'Salvar'}
+            {saving ? 'Enviando...' : 'Enviar'}
           </button>
         </div>
       </div>
