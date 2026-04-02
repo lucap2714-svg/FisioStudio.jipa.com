@@ -127,7 +127,11 @@ export default function AssessmentFormView({ studentId, onBack, currentUser }: A
     if (!formRef.current || !student) return;
     setIsExporting(true);
     try {
-        await exportSheetToPdf(formRef.current, `Avaliacao_${student.name.replace(/\s+/g, '_')}.pdf`);
+        await exportSheetToPdf(formRef.current, `Avaliacao_${student.name.replace(/\s+/g, '_')}.pdf`, {
+          studentName: student.name,
+          docType: 'Avaliação',
+          onDriveStatus: (s) => console.debug('[PDF][Drive] status', s)
+        });
     } finally {
         setIsExporting(false);
     }

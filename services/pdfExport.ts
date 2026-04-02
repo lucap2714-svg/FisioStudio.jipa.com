@@ -4,7 +4,11 @@
  * Resolve problemas de cortes (cropping) e páginas pretas (canvas errors).
  */
 
-export async function exportSheetToPdf(element: HTMLElement, filename: string) {
+export async function exportSheetToPdf(
+  element: HTMLElement,
+  filename: string,
+  options?: { studentName?: string; docType?: string; onDriveStatus?: (status: 'ok' | 'error' | 'skip') => void }
+) {
   console.log(`[PDF_EXPORT] Iniciando exportação: ${filename}`);
   
   // 1. Aguardar fontes e imagens carregarem completamente
@@ -122,6 +126,31 @@ export async function exportSheetToPdf(element: HTMLElement, filename: string) {
     console.log(`[PDF_EXPORT] PDF gerado com ${pdf.internal.getNumberOfPages()} páginas.`);
     pdf.save(filename);
 
+    const shouldUpload = Boolean(options?.studentName) && typeof fetch !== 'undefined';
+    if (shouldUpload) {
+      try {
+        const arrayBuffer = pdf.output('arraybuffer') as ArrayBuffer;
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+        const payload = {
+          studentName: options?.studentName,
+          docType: options?.docType || 'PDF',
+          pdfBase64: base64,
+          timestampISO: new Date().toISOString()
+        };
+        await fetch('/api/drive/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        options?.onDriveStatus?.('ok');
+      } catch (uploadErr) {
+        console.warn('[PDF_EXPORT] Falha ao salvar no Drive', uploadErr);
+        options?.onDriveStatus?.('error');
+      }
+    } else {
+      options?.onDriveStatus?.('skip');
+    }
+
   } catch (error: any) {
     console.error("[PDF_EXPORT] Falha crítica:", error);
     alert(`Erro ao gerar o PDF: ${error.message || "Erro desconhecido"}`);
@@ -131,3 +160,4 @@ export async function exportSheetToPdf(element: HTMLElement, filename: string) {
     }
   }
 }
+

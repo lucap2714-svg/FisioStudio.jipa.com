@@ -4,7 +4,7 @@ import { db, DateUtils } from '../services/db';
 import { googleSync } from '../services/googleCalendar';
 import { ClassSession, Student, AttendanceStatus, Booking } from '../types';
 import { WEEK_DAYS } from '../constants';
-import { kioskSessionsService } from '../services/kioskSessionsService';
+import kioskService from '../services/kioskService';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 
 interface ClassesListProps {
@@ -95,17 +95,17 @@ const AddClassModal = ({ isOpen, onClose, students, onClassCreated }: { isOpen: 
   }, [date]);
   const targetTime = useMemo(() => normalizeTimeSlot(time), [time]);
 
-  // Lógica de sugestão automática baseada na grade semanal
+  // LÃ³gica de sugestÃ£o automÃ¡tica baseada na grade semanal
   const suggestedStudents = useMemo(() => {
     return getSuggestedStudents(students, targetDay, targetTime);
   }, [students, targetDay, targetTime]);
 
   useEffect(() => {
     if (!targetDay || !targetTime) return;
-    console.debug(`[Agenda][Sugestões] dia=${targetDay} horário=${targetTime} total=${students.length} sugeridos=${suggestedStudents.length}`);
+    console.debug(`[Agenda][SugestÃµes] dia=${targetDay} horÃ¡rio=${targetTime} total=${students.length} sugeridos=${suggestedStudents.length}`);
   }, [targetDay, targetTime, students.length, suggestedStudents.length]);
 
-  // Auto-selecionar quando mudar o horário se for nova sessão
+  // Auto-selecionar quando mudar o horÃ¡rio se for nova sessÃ£o
   useEffect(() => {
     if (isOpen && suggestedStudents.length > 0 && selectedStudentIds.length === 0) {
       setSelectedStudentIds(suggestedStudents.map(s => s.id));
@@ -143,13 +143,13 @@ const AddClassModal = ({ isOpen, onClose, students, onClassCreated }: { isOpen: 
   const handleCreate = async () => {
     if (isSubmitting) return;
     if (selectedStudentIds.length === 0) {
-      setErrors("Selecione ao menos um aluno para criar a sess�o.");
+      setErrors("Selecione ao menos um aluno para criar a sessão.");
       return;
     }
 
     const startAt = new Date(`${date}T${time}`);
     if (Number.isNaN(startAt.getTime())) {
-      setErrors("Data ou hor�rio inv�lidos.");
+      setErrors("Data ou horário inválidos.");
       return;
     }
 
@@ -158,14 +158,13 @@ const AddClassModal = ({ isOpen, onClose, students, onClassCreated }: { isOpen: 
       let sessionId = db.generateId();
 
       if (isSupabaseConfigured) {
-        const supabaseSession = await kioskSessionsService.upsertSessionWithStudents({
+        const supabaseSession = await kioskService.upsertSession({
           startAt,
-          title: `Sess�o ${time}`,
-          studentIds: selectedStudentIds,
+          title: `Sessão ${time}`,
           isActive: true,
-          allowRemovals: true,
         });
         sessionId = supabaseSession.id;
+        await kioskService.addStudentsToSession(sessionId, selectedStudentIds);
       }
 
       const newClass: ClassSession = {
@@ -211,7 +210,7 @@ const AddClassModal = ({ isOpen, onClose, students, onClassCreated }: { isOpen: 
     <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in" onClick={onClose}>
       <div className="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl p-8 md:p-10 flex flex-col max-h-[90vh] relative overflow-hidden" onClick={e => e.stopPropagation()}>
         <ModalCloseButton onClick={onClose} />
-        <h3 className="text-2xl font-black text-slate-800 tracking-tighter uppercase mb-6 pr-12">Nova Aula / Sessão</h3>
+        <h3 className="text-2xl font-black text-slate-800 tracking-tighter uppercase mb-6 pr-12">Nova Aula / SessÃ£o</h3>
         
         {errors && <ValidationErrorBanner message={errors} />}
 
@@ -221,12 +220,12 @@ const AddClassModal = ({ isOpen, onClose, students, onClassCreated }: { isOpen: 
             <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-5 py-3 bg-brand-bg/30 border-2 border-brand-light/20 rounded-xl font-bold outline-none focus:border-brand-primary" />
           </div>
           <div className="space-y-1">
-            <label className="text-[9px] font-black text-brand-dark uppercase tracking-widest ml-1">Horário</label>
+            <label className="text-[9px] font-black text-brand-dark uppercase tracking-widest ml-1">HorÃ¡rio</label>
             <input type="time" value={time} onChange={e => setTime(e.target.value)} className="w-full px-5 py-3 bg-brand-bg/30 border-2 border-brand-light/20 rounded-xl font-bold outline-none focus:border-brand-primary" />
           </div>
         </div>
 
-        {/* Seção de Sugestões Inteligentes */}
+        {/* SeÃ§Ã£o de SugestÃµes Inteligentes */}
         <div className="mb-6 bg-brand-bg/20 p-5 rounded-2xl border border-brand-light/30">
           <header className="flex justify-between items-center mb-3">
              <div className="flex items-center gap-2">
@@ -238,7 +237,7 @@ const AddClassModal = ({ isOpen, onClose, students, onClassCreated }: { isOpen: 
              )}
           </header>
           {suggestedStudents.length === 0 ? (
-            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Nenhum aluno cadastrado para este horário na grade semanal.</p>
+            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Nenhum aluno cadastrado para este horÃ¡rio na grade semanal.</p>
           ) : (
             <div className="flex flex-wrap gap-2">
                {suggestedStudents.map(s => (
@@ -268,7 +267,7 @@ const AddClassModal = ({ isOpen, onClose, students, onClassCreated }: { isOpen: 
                   <div className="text-left">
                     <span className="font-bold text-slate-700 text-sm block">{s.name}</span>
                     {slotMatches(s.weeklySchedule, targetDay, targetTime) && (
-                      <span className="text-[8px] font-black text-brand-primary uppercase tracking-widest mt-0.5 block">Possui horário fixo neste slot</span>
+                      <span className="text-[8px] font-black text-brand-primary uppercase tracking-widest mt-0.5 block">Possui horÃ¡rio fixo neste slot</span>
                     )}
                   </div>
                 </div>
@@ -280,7 +279,7 @@ const AddClassModal = ({ isOpen, onClose, students, onClassCreated }: { isOpen: 
         <div className="flex gap-4 mt-8">
            <button onClick={onClose} className="flex-1 py-4 bg-slate-100 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancelar</button>
            <button onClick={handleCreate} disabled={isSubmitting} className="flex-1 py-4 bg-brand-primary text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-glow">
-             {isSubmitting ? 'Sincronizando...' : 'Confirmar e Criar Sessão'}
+             {isSubmitting ? 'Sincronizando...' : 'Confirmar e Criar SessÃ£o'}
            </button>
         </div>
       </div>
@@ -377,7 +376,7 @@ export default function ClassesList({ onSelectClass, onOpenStudentProfile, onOpe
   };
   
   const handleAbsenceConfirm = async () => {
-    if (!absenceData || !absenceReason.trim()) return setAbsenceErrors("Justificativa obrigatória.");
+    if (!absenceData || !absenceReason.trim()) return setAbsenceErrors("Justificativa obrigatÃ³ria.");
     let bookingId = absenceData.student.booking?.id;
     if (!bookingId) bookingId = await ensureBooking(absenceData.student);
     await db.markAbsent(bookingId, absenceReason, 'system');
@@ -400,7 +399,7 @@ export default function ClassesList({ onSelectClass, onOpenStudentProfile, onOpe
   };
 
   const handleReschedule = async () => {
-    if (!rescheduleData || !rescheduleReason.trim()) return setRescheduleErrors("Motivo obrigatório.");
+    if (!rescheduleData || !rescheduleReason.trim()) return setRescheduleErrors("Motivo obrigatÃ³rio.");
     try {
       let targetSession = classes.find(c => c.date === rescheduleData.date && c.startTime === rescheduleNewTime);
       if (!targetSession) {
@@ -424,7 +423,7 @@ export default function ClassesList({ onSelectClass, onOpenStudentProfile, onOpe
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 px-4 md:px-0">
         <div>
           <h2 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tighter uppercase">Agenda Permanente</h2>
-          <p className="text-brand-dark font-black uppercase tracking-widest text-[10px] mt-1">Horários Sincronizados</p>
+          <p className="text-brand-dark font-black uppercase tracking-widest text-[10px] mt-1">HorÃ¡rios Sincronizados</p>
         </div>
         <div className="flex w-full md:w-auto gap-4">
           <input type="text" placeholder="Filtrar aluno..." className="flex-1 md:w-64 px-6 py-3 bg-white border border-brand-light/30 rounded-2xl outline-none focus:border-brand-primary font-bold shadow-premium" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
@@ -455,7 +454,7 @@ export default function ClassesList({ onSelectClass, onOpenStudentProfile, onOpe
                       {openMenuId === `${student.id}-${group.day}-${student.fixedTime}` && (
                         <div className={`absolute bottom-full mb-2 w-48 bg-white rounded-xl shadow-2xl border z-[200] py-1 ${groupIdx >= 3 ? 'right-0' : 'left-0'}`}>
                            <button onClick={() => { onOpenStudentProfile(student.id); setOpenMenuId(null); }} className="w-full text-left px-4 py-2 text-[9px] font-black uppercase text-slate-700 hover:bg-brand-bg flex items-center gap-2"><Icons.FileText /> Perfil</button>
-                           <button onClick={() => handleMarkPresent(student)} className="w-full text-left px-4 py-2 text-[9px] font-black uppercase text-emerald-600 hover:bg-emerald-50 flex items-center gap-2"><Icons.Check /> Presença</button>
+                           <button onClick={() => handleMarkPresent(student)} className="w-full text-left px-4 py-2 text-[9px] font-black uppercase text-emerald-600 hover:bg-emerald-50 flex items-center gap-2"><Icons.Check /> PresenÃ§a</button>
                            <button onClick={() => { setAbsenceData({ student }); setOpenMenuId(null); }} className="w-full text-left px-4 py-2 text-[9px] font-black uppercase text-red-600 hover:bg-red-50 flex items-center gap-2"><Icons.X /> Falta</button>
                            <button onClick={() => { setRescheduleData({ studentId: student.id, studentName: student.name, date: student.dayDate, currentStartTime: student.fixedTime, booking: student.booking }); setOpenMenuId(null); }} className="w-full text-left px-4 py-2 text-[9px] font-black uppercase text-brand-primary hover:bg-brand-bg flex items-center gap-2"><Icons.Repeat /> Reagendar</button>
                         </div>

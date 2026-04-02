@@ -11,7 +11,8 @@
   "dependencies": {
     "@supabase/supabase-js": "2.48.1",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "googleapis": "126.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

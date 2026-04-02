@@ -187,7 +187,11 @@ export default function TrainingPlanView({ studentId, onBack, currentUser }: Tra
     if (!formRef.current || !student) return;
     setIsExporting(true);
     try {
-        await exportSheetToPdf(formRef.current, `Evolucao_${student.name.replace(/\s+/g, '_')}.pdf`);
+        await exportSheetToPdf(formRef.current, `Evolucao_${student.name.replace(/\s+/g, '_')}.pdf`, {
+          studentName: student.name,
+          docType: 'Evolução',
+          onDriveStatus: (s) => console.debug('[PDF][Drive] status', s)
+        });
     } finally {
         setIsExporting(false);
     }
