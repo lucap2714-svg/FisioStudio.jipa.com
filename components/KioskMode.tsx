@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { DateUtils, db } from '../services/db';
-import { useKioskSession } from '../hooks/useKioskSession';
-import { kioskSessionsService, KioskSessionStudent } from '../services/kioskSessionsService';
+import useKiosk from '../hooks/useKiosk';
+import kioskService, { KioskSessionStudent } from '../services/kioskService';
 import { Student } from '../types';
 
 interface KioskModeProps {
@@ -21,7 +21,7 @@ const Icons = {
 
 const DEFAULT_ADMIN_PIN = '1234';
 
-const formatTime = (iso: string | null | undefined) => {
+const formatTime = (iso?: string | null) => {
   if (!iso) return '--:--';
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '--:--';
@@ -34,64 +34,42 @@ export default function KioskMode({ onExit }: KioskModeProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [pinValue, setPinValue] = useState('');
-  const [isConfirming, setIsConfirming] = useState(false);
-  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [qrOpenedMap, setQrOpenedMap] = useState<Record<string, boolean>>({});
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [allStudents, setAllStudents] = useState<Student[]>([]);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [isSavingSession, setIsSavingSession] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
 
-  const { session: activeSession, students, loading, error, isReconnecting, refresh, confirmAttendance } = useKioskSession();
-  console.debug('[Kiosk][Render] start', {
-    sessionId: activeSession?.id || null,
-    start: activeSession?.start_at,
-    end: activeSession?.end_at,
-    students: Array.isArray(students) ? students.length : 'n/a',
-    loading,
-    error,
-    reconnecting: isReconnecting
-  });
+  const { session: activeSession, students, loading, error, isReconnecting, refresh, confirm, reset } = useKiosk();
+
+  useEffect(() => {
+    console.debug('[Kiosk][Render] start', {
+      sessionId: activeSession?.id || null,
+      start: activeSession?.start_at,
+      end: activeSession?.end_at,
+      students: Array.isArray(students) ? students.length : 'n/a',
+      loading,
+      error,
+      reconnecting: isReconnecting,
+    });
+  }, [activeSession, students, loading, error, isReconnecting]);
 
   useEffect(() => {
     localStorage.setItem('fisiostudio_kiosk_locked', 'true');
   }, []);
 
   useEffect(() => {
-    const clockInterval = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(clockInterval);
+    const clock = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(clock);
   }, []);
 
-  useEffect(() => {
-    if (!activeSession) {
-      setActiveCheckinItem(null);
-      setSearchTerm('');
-      setQrOpenedMap({});
-    }
-  }, [activeSession]);
-
-  useEffect(() => {
-    if (!isAddModalOpen) return;
-    if (allStudents.length > 0) return;
-    (async () => {
-      try {
-        setLoadError(null);
-        const list = await db.getStudents(true);
-        setAllStudents(list);
-      } catch (e: any) {
-        console.error('[Kiosk] Falha ao carregar alunos para sugestão', e);
-        setLoadError(e?.message || 'Não foi possível carregar alunos.');
-      }
-    })();
-  }, [isAddModalOpen, allStudents.length]);
-
-  useEffect(() => {
-    if (!isAddModalOpen) return;
-    if (selectedStudentIds.length === 0 && suggestedStudents.length > 0) {
-      setSelectedStudentIds(suggestedStudents.map((s) => s.id));
-    }
-  }, [isAddModalOpen, suggestedStudents, selectedStudentIds.length]);
+  const currentStudentsList = useMemo(() => {
+    const base = Array.isArray(students) ? students : [];
+    const term = searchTerm.trim().toLowerCase();
+    return base.filter((s) => !term || s.full_name.toLowerCase().includes(term));
+  }, [students, searchTerm]);
 
   const sessionStartLabel = formatTime(activeSession?.start_at);
   const sessionEndLabel = formatTime(activeSession?.end_at);
@@ -141,58 +119,43 @@ export default function KioskMode({ onExit }: KioskModeProps) {
     [currentSlot]
   );
 
-  const suggestedStudents = useMemo(
-    () => getSuggestedStudents(allStudents, slotDayName, slotTime),
-    [allStudents, slotDayName, slotTime]
-  );
-
-  const currentStudentsList = useMemo(() => {
-    const base = Array.isArray(students) ? students : [];
-    const term = searchTerm.trim().toLowerCase();
-    return base
-      .map(student => ({
-        ...student,
-        normalizedStatus: (student.status || 'scheduled').toLowerCase(),
-      }))
-      .filter(student => !term || student.full_name.toLowerCase().includes(term));
-  }, [students, searchTerm]);
+  useEffect(() => {
+    if (!isAddModalOpen) return;
+    if (allStudents.length > 0) return;
+    (async () => {
+      try {
+        setLoadError(null);
+        const list = await db.getStudents(true);
+        setAllStudents(list);
+      } catch (e: any) {
+        console.error('[Kiosk][Diag] Falha ao carregar alunos', e);
+        setLoadError(e?.message || 'Não foi possível carregar alunos.');
+      }
+    })();
+  }, [isAddModalOpen, allStudents.length]);
 
   useEffect(() => {
-    console.debug(`[Kiosk][UI] Lista exibida: ${currentStudentsList.length} alunos (filtro="${searchTerm.trim() || '—'}").`);
-  }, [currentStudentsList, searchTerm]);
+    if (!isAddModalOpen) return;
+    const suggested = getSuggestedStudents(allStudents, slotDayName, slotTime);
+    if (selectedStudentIds.length === 0 && suggested.length > 0) {
+      setSelectedStudentIds(suggested.map((s) => s.id));
+    }
+  }, [isAddModalOpen, allStudents, slotDayName, slotTime, selectedStudentIds.length]);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen();
     else if (document.exitFullscreen) document.exitFullscreen();
   };
 
-  const refreshData = async () => {
-    setIsManualRefreshing(true);
-    await refresh();
-    setIsManualRefreshing(false);
-  };
-
   const startCheckinFlow = (student: KioskSessionStudent) => {
     if ((student.status || '').toLowerCase() === 'confirmed') return;
-    setQrOpenedMap(prev => ({ ...prev, [student.id]: true }));
+    setQrOpenedMap((prev) => ({ ...prev, [student.record_id]: true }));
     setActiveCheckinItem(student);
   };
 
   const handleRetryQr = async (student: KioskSessionStudent) => {
     if (!activeSession) return;
-    const isConfirmed = (student.status || '').toLowerCase() === 'confirmed';
-    if (isConfirmed) {
-      try {
-        await kioskSessionsService.resetAttendance(student.id);
-        await refresh();
-      } catch (e) {
-        console.error('[Kiosk] Falha ao resetar presença', e);
-      }
-      setQrOpenedMap(prev => ({ ...prev, [student.id]: true }));
-      setActiveCheckinItem({ ...student, status: 'scheduled', confirmed_at: null });
-      return;
-    }
-    setQrOpenedMap(prev => ({ ...prev, [student.id]: true }));
+    setQrOpenedMap((prev) => ({ ...prev, [student.record_id]: true }));
     setActiveCheckinItem({ ...student });
   };
 
@@ -200,7 +163,7 @@ export default function KioskMode({ onExit }: KioskModeProps) {
     if (!activeCheckinItem || isConfirming) return;
     setIsConfirming(true);
     try {
-      await confirmAttendance(activeCheckinItem.id);
+      await confirm(activeCheckinItem.record_id);
       setActiveCheckinItem(null);
       setSearchTerm('');
     } catch (err) {
@@ -211,38 +174,31 @@ export default function KioskMode({ onExit }: KioskModeProps) {
     }
   };
 
-  const handlePinSubmit = () => {
-    if (pinValue === DEFAULT_ADMIN_PIN) {
-      localStorage.removeItem('fisiostudio_kiosk_locked');
-      onExit();
-    } else {
-      setPinValue('');
-      alert('PIN Administrativo incorreto.');
+  const handleRetryReset = async (student: KioskSessionStudent) => {
+    try {
+      await reset(student.record_id);
+      setQrOpenedMap((prev) => ({ ...prev, [student.record_id]: true }));
+      setActiveCheckinItem({ ...student, status: 'scheduled', confirmed_at: null });
+    } catch (e) {
+      console.error('[Kiosk] Falha ao resetar presença', e);
     }
   };
 
   const toggleStudentSelection = (id: string) => {
-    setSelectedStudentIds(prev => (prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]));
+    setSelectedStudentIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
   };
 
   const handleSaveSessionStudents = async () => {
     if (isSavingSession || selectedStudentIds.length === 0) return;
     setIsSavingSession(true);
     try {
-      const baseIds = students.map(s => Number(s.student_id));
-      const selectedNumeric = selectedStudentIds
-        .map(id => parseInt(String(id).replace(/^s[-_]?/, ''), 10))
-        .filter(n => !Number.isNaN(n));
-      const allIds = Array.from(new Set([...baseIds, ...selectedNumeric]));
-
-      await kioskSessionsService.upsertSessionWithStudents({
-        id: activeSession?.id,
+      const session = await kioskService.upsertSession({
+        id: activeSession?.id ?? null,
         startAt: currentSlot,
-        studentIds: allIds,
         isActive: true,
-        allowRemovals: false
+        title: `Sessão ${slotTime}`,
       });
-
+      await kioskService.addStudentsToSession(session.id, selectedStudentIds);
       await refresh();
       setIsAddModalOpen(false);
       setSelectedStudentIds([]);
@@ -256,7 +212,6 @@ export default function KioskMode({ onExit }: KioskModeProps) {
 
   const renderCheckinModal = () => {
     if (!activeCheckinItem) return null;
-
     const today = new Date();
     const dateBR = today.toLocaleDateString('pt-BR');
     const dayName = DateUtils.getDayName(today);
@@ -268,33 +223,33 @@ export default function KioskMode({ onExit }: KioskModeProps) {
     return (
       <div className="fixed inset-0 z-[500] bg-slate-900/95 backdrop-blur-xl flex flex-col items-center justify-center p-8 text-center animate-in">
         <div className="bg-white rounded-[4rem] p-10 md:p-14 max-w-xl w-full space-y-10 shadow-2xl border-8 border-brand-primary/20 relative">
-           <button 
-             onClick={() => setActiveCheckinItem(null)} 
-             className="absolute top-8 right-8 p-4 bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
-           >
-             <Icons.X />
-           </button>
+          <button
+            onClick={() => setActiveCheckinItem(null)}
+            className="absolute top-8 right-8 p-4 bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            <Icons.X />
+          </button>
 
-           <header className="space-y-4 pt-4">
-             <h2 className="text-3xl font-black text-slate-800 tracking-tighter">Validar Presença</h2>
-             <p className="text-xl text-brand-dark font-black uppercase tracking-widest leading-tight">{activeCheckinItem.full_name}</p>
-             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Horário agendado: {timeLabel}</p>
-           </header>
-           
-           <div className="bg-slate-50 p-8 rounded-[3rem] border-4 border-dashed border-brand-light/30 flex flex-col items-center gap-6">
-             <img src={qrUrl} className="aspect-square w-full max-w-[240px]" alt="QR Code" />
-             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Escaneie para validar sua sessão</p>
-           </div>
+          <header className="space-y-4 pt-4">
+            <h2 className="text-3xl font-black text-slate-800 tracking-tighter">Validar Presença</h2>
+            <p className="text-xl text-brand-dark font-black uppercase tracking-widest leading-tight">{activeCheckinItem.full_name}</p>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Horário agendado: {timeLabel}</p>
+          </header>
 
-           <div className="space-y-4 pt-4">
-              <button 
-                onClick={handleFinalConfirm} 
-                disabled={isConfirming}
-                className="w-full bg-brand-primary text-white py-8 rounded-[2rem] font-black uppercase text-sm tracking-[0.2em] shadow-glow hover:bg-brand-dark transition-all active:scale-95 disabled:opacity-50"
-              >
-                {isConfirming ? 'Registrando...' : 'CONFIRMAR PRESENÇA'}
-              </button>
-           </div>
+          <div className="bg-slate-50 p-8 rounded-[3rem] border-4 border-dashed border-brand-light/30 flex flex-col items-center gap-6">
+            <img src={qrUrl} className="aspect-square w-full max-w-[240px]" alt="QR Code" />
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Escaneie para validar sua sessão</p>
+          </div>
+
+          <div className="space-y-4 pt-4">
+            <button
+              onClick={handleFinalConfirm}
+              disabled={isConfirming}
+              className="w-full bg-brand-primary text-white py-8 rounded-[2rem] font-black uppercase text-sm tracking-[0.2em] shadow-glow hover:bg-brand-dark transition-all active:scale-95 disabled:opacity-50"
+            >
+              {isConfirming ? 'Registrando...' : 'CONFIRMAR PRESENÇA'}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -303,16 +258,16 @@ export default function KioskMode({ onExit }: KioskModeProps) {
   const renderEmptyState = (title: string, subtitle: string) => (
     <div className="flex flex-col items-center justify-center h-full text-center space-y-8 animate-in">
       <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center shadow-premium border-4 border-brand-light/20 text-brand-primary opacity-40">
-          <Icons.Calendar />
+        <Icons.Calendar />
       </div>
       <div className="space-y-2">
-         <p className="text-slate-400 font-black uppercase tracking-[0.3em] text-xl">{title}</p>
-         <p className="text-slate-500 text-sm font-bold uppercase tracking-widest">{subtitle}</p>
-         {hasSession && (
-           <p className="text-slate-400 text-xs font-bold uppercase tracking-widest opacity-70">
-             Janela: {sessionStartLabel} - {sessionEndLabel}
-           </p>
-         )}
+        <p className="text-slate-400 font-black uppercase tracking-[0.3em] text-xl">{title}</p>
+        <p className="text-slate-500 text-sm font-bold uppercase tracking-widest">{subtitle}</p>
+        {hasSession && (
+          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest opacity-70">
+            Janela: {sessionStartLabel} - {sessionEndLabel}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -321,16 +276,18 @@ export default function KioskMode({ onExit }: KioskModeProps) {
     <div className="fixed inset-0 z-[400] bg-brand-bg flex flex-col overflow-hidden animate-in">
       <header className="bg-brand-primary p-6 md:p-10 flex justify-between items-center shadow-xl shrink-0">
         <div className="flex items-center gap-6 text-white">
-           <Icons.Tablet />
-           <div><h1 className="text-2xl font-black tracking-tighter uppercase">FisioStudio Quiosque</h1></div>
+          <Icons.Tablet />
+          <div><h1 className="text-2xl font-black tracking-tighter uppercase">FisioStudio Quiosque</h1></div>
         </div>
         <div className="flex items-center gap-6">
           <div className="bg-white/20 px-6 py-4 rounded-2xl text-white font-black text-2xl shadow-inner tabular-nums">
-             {currentTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+            {currentTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
           </div>
           <div className="flex gap-4">
             <button onClick={toggleFullscreen} className="p-4 bg-white/20 text-white rounded-2xl hidden sm:block transition-transform active:scale-90"><Icons.Fullscreen /></button>
-            <button onClick={refreshData} disabled={isManualRefreshing} className="p-4 bg-white/20 text-white rounded-2xl transition-transform active:scale-90 disabled:opacity-60"><Icons.Refresh /></button>
+            <button onClick={refresh} className="p-4 bg-white/20 text-white rounded-2xl transition-transform active:scale-90 disabled:opacity-60" disabled={loading}>
+              <Icons.Refresh />
+            </button>
             <button onClick={() => setIsPinModalOpen(true)} className="bg-white/10 text-white p-4 rounded-2xl border border-white/20 transition-transform active:scale-90"><Icons.Lock /></button>
           </div>
         </div>
@@ -339,12 +296,12 @@ export default function KioskMode({ onExit }: KioskModeProps) {
       <main className="flex-1 p-6 md:p-14 max-w-5xl mx-auto w-full flex flex-col overflow-hidden">
         <div className="relative mb-6">
           <span className="absolute left-10 top-1/2 -translate-y-1/2 text-brand-dark"><Icons.Search /></span>
-          <input 
-            type="text" 
-            placeholder="Digite seu nome para confirmar..." 
+          <input
+            type="text"
+            placeholder="Digite seu nome para confirmar..."
             className="w-full pl-24 pr-10 py-12 rounded-[4rem] shadow-2xl text-3xl outline-none border-4 border-transparent focus:border-brand-primary bg-white font-black placeholder:text-slate-200"
             value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
+            onChange={(e) => setSearchTerm(e.target.value)}
             autoFocus
           />
         </div>
@@ -393,24 +350,26 @@ export default function KioskMode({ onExit }: KioskModeProps) {
           ) : currentStudentsList.length === 0 ? (
             renderEmptyState('Nenhum aluno vinculado', 'Sessão ativa sem alunos confirmáveis no momento')
           ) : (
-            currentStudentsList.map(item => {
+            currentStudentsList.map((item) => {
               const isPresent = (item.status || '').toLowerCase() === 'confirmed';
-              const hasQrHistory = qrOpenedMap[item.id] || isPresent;
+              const hasQrHistory = qrOpenedMap[item.record_id] || isPresent;
               return (
-                <div key={item.id} className="relative">
-                  <button 
+                <div key={item.record_id} className="relative">
+                  <button
                     disabled={isPresent}
-                    onClick={() => startCheckinFlow(item)} 
-                    className={`w-full bg-white p-10 rounded-[4rem] shadow-premium hover:shadow-glow flex items-center justify-between transition-all border-4 ${isPresent ? 'opacity-50 border-emerald-500' : 'border-transparent active:scale-95 hover:border-brand-light/20'}`}
+                    onClick={() => startCheckinFlow(item)}
+                    className={`w-full bg-white p-10 rounded-[4rem] shadow-premium hover:shadow-glow flex items-center justify-between transition-all border-4 ${
+                      isPresent ? 'opacity-50 border-emerald-500' : 'border-transparent active:scale-95 hover:border-brand-light/20'
+                    }`}
                   >
                     <div className="flex items-center gap-10 text-left">
-                       <div className={`w-20 h-20 rounded-[2.5rem] flex items-center justify-center font-black text-3xl ${isPresent ? 'bg-emerald-100 text-emerald-600' : 'bg-brand-bg text-brand-dark'}`}>
+                      <div className={`w-20 h-20 rounded-[2.5rem] flex items-center justify-center font-black text-3xl ${isPresent ? 'bg-emerald-100 text-emerald-600' : 'bg-brand-bg text-brand-dark'}`}>
                         {item.full_name.charAt(0)}
-                       </div>
-                       <div>
-                         <h4 className="text-3xl font-black text-slate-800 leading-tight">{item.full_name}</h4>
-                         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Horário agendado: {sessionStartLabel}</p>
-                       </div>
+                      </div>
+                      <div>
+                        <h4 className="text-3xl font-black text-slate-800 leading-tight">{item.full_name}</h4>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Horário agendado: {sessionStartLabel}</p>
+                      </div>
                     </div>
                     <div className={`${isPresent ? 'bg-emerald-500' : 'bg-brand-primary'} text-white px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-glow`}>
                       {isPresent ? 'Presença Validada' : 'Confirmar Presença'}
@@ -418,8 +377,8 @@ export default function KioskMode({ onExit }: KioskModeProps) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleRetryQr(item)}
-                    disabled={!hasQrHistory}
+                    onClick={() => (isPresent ? handleRetryReset(item) : handleRetryQr(item))}
+                    disabled={!hasQrHistory && !isPresent}
                     className="absolute right-6 top-6 bg-white text-brand-primary p-3 rounded-full shadow-premium border border-brand-light/50 active:scale-95 z-10 disabled:opacity-40 disabled:cursor-not-allowed"
                     aria-label="Refazer QR"
                   >
@@ -467,11 +426,11 @@ export default function KioskMode({ onExit }: KioskModeProps) {
             <div className="flex flex-col md:flex-row gap-6 h-full">
               <div className="md:w-1/3 bg-brand-bg rounded-2xl p-4 border border-brand-light/40 overflow-y-auto max-h-[60vh]">
                 <h4 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500 mb-3">Sugeridos</h4>
-                {suggestedStudents.length === 0 ? (
+                {getSuggestedStudents(allStudents, slotDayName, slotTime).length === 0 ? (
                   <p className="text-sm text-slate-500">Nenhum aluno sugerido para este horário.</p>
                 ) : (
                   <div className="space-y-3">
-                    {suggestedStudents.map((s) => {
+                    {getSuggestedStudents(allStudents, slotDayName, slotTime).map((s) => {
                       const isSelected = selectedStudentIds.includes(s.id);
                       return (
                         <button
@@ -544,22 +503,30 @@ export default function KioskMode({ onExit }: KioskModeProps) {
 
       {isPinModalOpen && (
         <div className="fixed inset-0 z-[600] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-6" onClick={() => setIsPinModalOpen(false)}>
-           <div className="bg-white w-full max-w-md rounded-[4rem] p-14 text-center border-8 border-brand-light/20 shadow-2xl" onClick={e => e.stopPropagation()}>
-              <h3 className="text-2xl font-black text-slate-800 uppercase mb-12 tracking-tight">Sair do Quiosque</h3>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Digite o PIN Administrativo</p>
-              <input 
-                type="password" 
-                maxLength={4}
-                className="w-full text-center text-6xl font-black py-10 bg-brand-bg rounded-[2rem] outline-none tracking-[0.5em] mb-10 border-4 border-transparent focus:border-brand-primary"
-                value={pinValue}
-                onChange={e => setPinValue(e.target.value)}
-                autoFocus
-              />
-              <div className="flex gap-4">
-                <button onClick={() => setIsPinModalOpen(false)} className="flex-1 py-6 bg-slate-100 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancelar</button>
-                <button onClick={handlePinSubmit} className="flex-1 py-6 bg-brand-primary text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-glow">Confirmar</button>
-              </div>
-           </div>
+          <div className="bg-white w-full max-w-md rounded-[4rem] p-14 text-center border-8 border-brand-light/20 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-2xl font-black text-slate-800 uppercase mb-12 tracking-tight">Sair do Quiosque</h3>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Digite o PIN Administrativo</p>
+            <input
+              type="password"
+              maxLength={4}
+              className="w-full text-center text-6xl font-black py-10 bg-brand-bg rounded-[2rem] outline-none tracking-[0.5em] mb-10 border-4 border-transparent focus:border-brand-primary"
+              value={pinValue}
+              onChange={(e) => setPinValue(e.target.value)}
+              autoFocus
+            />
+            <div className="flex gap-4">
+              <button onClick={() => setIsPinModalOpen(false)} className="flex-1 py-6 bg-slate-100 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancelar</button>
+              <button onClick={() => {
+                if (pinValue === DEFAULT_ADMIN_PIN) {
+                  localStorage.removeItem('fisiostudio_kiosk_locked');
+                  onExit();
+                } else {
+                  setPinValue('');
+                  alert('PIN Administrativo incorreto.');
+                }
+              }} className="flex-1 py-6 bg-brand-primary text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-glow">Confirmar</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
