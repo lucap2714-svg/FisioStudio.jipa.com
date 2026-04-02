@@ -206,7 +206,7 @@ const FeedbackBoard: React.FC<FeedbackBoardProps> = ({ currentUser }) => {
                 : 'bg-brand-primary text-white shadow-glow hover:shadow-xl'
             }`}
           >
-            {saving ? 'Enviando...' : 'Enviar'}
+            {saving ? 'Enviando...' : 'ENVIAR'}
           </button>
         </div>
       </div>
@@ -223,7 +223,7 @@ const FeedbackBoard: React.FC<FeedbackBoardProps> = ({ currentUser }) => {
         </div>
 
         {unavailable ? (
-          <div className="text-sm text-slate-500">Recurso indisponível no momento.</div>
+          <div className="text-sm text-slate-500">Configuração do feedback indisponível no momento.</div>
         ) : loading ? (
           <div className="text-sm text-slate-500">Carregando feedback...</div>
         ) : messages.length === 0 ? (
