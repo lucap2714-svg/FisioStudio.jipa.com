@@ -71,9 +71,34 @@ export default function KioskMode({ onExit }: KioskModeProps) {
     return base.filter((s) => !term || s.full_name.toLowerCase().includes(term));
   }, [students, searchTerm]);
 
+  const confirmedCount = useMemo(
+    () => students.filter((s) => (s.status || '').toLowerCase() === 'confirmed').length,
+    [students]
+  );
+  const waitingCount = Math.max((students?.length || 0) - confirmedCount, 0);
+  const filteredCount = currentStudentsList.length;
+
   const sessionStartLabel = formatTime(activeSession?.start_at);
   const sessionEndLabel = formatTime(activeSession?.end_at);
   const hasSession = !!activeSession;
+  const sessionWindowLabel = hasSession ? `${sessionStartLabel} — ${sessionEndLabel}` : 'Sem sessão ativa';
+
+  const isSessionLive = useMemo(() => {
+    if (!activeSession) return false;
+    const startTs = Date.parse(activeSession.start_at);
+    const endTs = Date.parse(activeSession.end_at);
+    const nowTs = currentTime.getTime();
+    return activeSession.is_active && !Number.isNaN(startTs) && !Number.isNaN(endTs) && nowTs >= startTs && nowTs < endTs;
+  }, [activeSession, currentTime]);
+
+  const sessionStatusLabel = hasSession ? (isSessionLive ? 'Ativa agora' : 'Aguardando início') : 'Sessão em espera';
+  const sessionStatusTone = isSessionLive
+    ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+    : hasSession
+      ? 'bg-amber-50 text-amber-700 border-amber-200'
+      : 'bg-slate-100 text-slate-500 border-slate-200';
+
+  const clearSearch = () => setSearchTerm('');
 
   const normalizeDay = (value: string = '') =>
     value
@@ -255,7 +280,7 @@ export default function KioskMode({ onExit }: KioskModeProps) {
     );
   };
 
-  const renderEmptyState = (title: string, subtitle: string) => (
+  const renderEmptyState = (title: string, subtitle: string, helper?: string) => (
     <div className="flex flex-col items-center justify-center h-full text-center space-y-8 animate-in">
       <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center shadow-premium border-4 border-brand-light/20 text-brand-primary opacity-40">
         <Icons.Calendar />
@@ -263,6 +288,7 @@ export default function KioskMode({ onExit }: KioskModeProps) {
       <div className="space-y-2">
         <p className="text-slate-400 font-black uppercase tracking-[0.3em] text-xl">{title}</p>
         <p className="text-slate-500 text-sm font-bold uppercase tracking-widest">{subtitle}</p>
+        {helper && <p className="text-slate-400 text-xs font-semibold uppercase tracking-widest opacity-80">{helper}</p>}
         {hasSession && (
           <p className="text-slate-400 text-xs font-bold uppercase tracking-widest opacity-70">
             Janela: {sessionStartLabel} - {sessionEndLabel}
@@ -274,49 +300,114 @@ export default function KioskMode({ onExit }: KioskModeProps) {
 
   return (
     <div className="fixed inset-0 z-[400] bg-brand-bg flex flex-col overflow-hidden animate-in">
-      <header className="bg-brand-primary p-6 md:p-10 flex justify-between items-center shadow-xl shrink-0 sticky top-0 z-[500]">
-        <div className="flex items-center gap-6 text-white">
-          <Icons.Tablet />
-          <div><h1 className="text-2xl font-black tracking-tighter uppercase">FisioStudio Quiosque</h1></div>
-        </div>
-        <div className="flex items-center gap-6">
-          <div className="bg-white/20 px-6 py-4 rounded-2xl text-white font-black text-2xl shadow-inner tabular-nums">
-            {currentTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+      <header className="sticky top-0 z-[500] bg-brand-primary text-white shadow-xl">
+        <div className="max-w-6xl mx-auto w-full px-4 md:px-8 py-4 md:py-5 space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 md:gap-4">
+              <div className="p-3 md:p-4 bg-white/15 rounded-2xl">
+                <Icons.Tablet />
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-white/80">Quiosque</p>
+                <h1 className="text-2xl md:text-3xl font-black tracking-tight leading-none">Confirmação de presença</h1>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 md:gap-3">
+              <div className="hidden sm:flex items-center gap-2 bg-white/15 px-4 py-3 rounded-2xl text-lg font-black shadow-inner tabular-nums">
+                {currentTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+              <button
+                onClick={refresh}
+                disabled={loading}
+                className="inline-flex items-center gap-2 px-4 md:px-5 py-3 rounded-2xl bg-white text-brand-primary font-black uppercase text-[11px] tracking-[0.25em] shadow-glow active:scale-95 transition disabled:opacity-60"
+              >
+                <Icons.Refresh /> Atualizar
+              </button>
+              <button
+                onClick={toggleFullscreen}
+                className="hidden md:inline-flex items-center justify-center p-3 rounded-2xl bg-white/15 text-white border border-white/10 active:scale-95 transition"
+                aria-label="Tela cheia"
+              >
+                <Icons.Fullscreen />
+              </button>
+              <button
+                onClick={() => setIsPinModalOpen(true)}
+                className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-white/15 text-white border border-white/15 active:scale-95 transition"
+              >
+                <Icons.Lock /> Sair
+              </button>
+            </div>
           </div>
-          <div className="flex gap-4">
-            <button onClick={toggleFullscreen} className="p-4 bg-white/20 text-white rounded-2xl hidden sm:block transition-transform active:scale-90"><Icons.Fullscreen /></button>
-            <button onClick={refresh} className="p-4 bg-white/20 text-white rounded-2xl transition-transform active:scale-90 disabled:opacity-60" disabled={loading}>
-              <Icons.Refresh />
-            </button>
-            <button onClick={() => setIsPinModalOpen(true)} className="bg-white/10 text-white p-4 rounded-2xl border border-white/20 transition-transform active:scale-90"><Icons.Lock /></button>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="bg-white/10 border border-white/10 rounded-2xl p-4 md:p-5 shadow-inner">
+              <p className="text-[11px] uppercase font-semibold text-white/80 tracking-[0.3em]">Sessão</p>
+              <p className="text-lg md:text-xl font-black leading-tight">{sessionWindowLabel}</p>
+              {activeSession?.title && (
+                <p className="text-sm text-white/80 mt-1 truncate">{activeSession.title}</p>
+              )}
+            </div>
+            <div className="bg-white/10 border border-white/10 rounded-2xl p-4 md:p-5 shadow-inner flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] uppercase font-semibold text-white/80 tracking-[0.3em]">Status</p>
+                <p className="text-lg font-black">{sessionStatusLabel}</p>
+              </div>
+              <span className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-[0.25em] border ${sessionStatusTone}`}>
+                {hasSession ? 'Janela ' + sessionWindowLabel : 'Aguardando nova sessão'}
+              </span>
+            </div>
+            <div className="bg-white/10 border border-white/10 rounded-2xl p-4 md:p-5 shadow-inner">
+              <p className="text-[11px] uppercase font-semibold text-white/80 tracking-[0.3em]">Alunos</p>
+              <div className="flex items-center gap-3 flex-wrap mt-1">
+                <span className="text-2xl md:text-3xl font-black tabular-nums">{students.length}</span>
+                <div className="flex gap-2 text-[11px] md:text-xs font-semibold uppercase tracking-[0.25em]">
+                  <span className="px-3 py-2 rounded-full bg-emerald-500/20 text-white border border-white/20">Confirmados {confirmedCount}</span>
+                  <span className="px-3 py-2 rounded-full bg-white/15 text-white border border-white/20">Aguardando {waitingCount}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </header>
 
       <main className="flex-1 p-4 md:p-8 lg:p-12 max-w-6xl mx-auto w-full flex flex-col overflow-hidden">
-        <div className="space-y-4 mb-6">
-          <div className="relative">
-            <span className="absolute left-6 top-1/2 -translate-y-1/2 text-brand-dark"><Icons.Search /></span>
-            <input
-              type="text"
-              placeholder="Pesquisar aluno..."
-              className="w-full pl-16 pr-6 py-5 rounded-[2rem] shadow-premium text-lg md:text-xl outline-none border-3 border-brand-light/60 focus:border-brand-primary bg-white font-black placeholder:text-slate-300"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              autoFocus
-            />
-          </div>
-          {hasSession && (
-            <div className="flex flex-wrap items-center gap-3 text-brand-dark font-black uppercase text-xs md:text-sm tracking-[0.3em] sticky top-[96px] md:top-[110px] z-[400] bg-brand-bg/80 backdrop-blur-md py-2">
-              <span className="px-4 py-2 bg-white rounded-2xl shadow-inner text-base md:text-lg tracking-tight text-slate-800">
-                Sessão ativa: {sessionStartLabel} — {sessionEndLabel}
-              </span>
-              {activeSession?.title && (
-                <span className="px-4 py-2 bg-white/80 rounded-2xl shadow-inner text-brand-primary text-xs md:text-sm">
-                  {activeSession.title}
-                </span>
+        <div className="bg-white rounded-[2.5rem] shadow-premium border border-brand-light/60 p-4 md:p-6 mb-6 space-y-4 sticky top-4 md:top-6 z-[450]">
+          <div className="flex flex-col md:flex-row md:items-center gap-3">
+            <div className="relative flex-1">
+              <span className="absolute left-5 top-1/2 -translate-y-1/2 text-brand-dark"><Icons.Search /></span>
+              <input
+                type="text"
+                placeholder="Pesquisar aluno..."
+                className="w-full pl-14 pr-14 py-4 md:py-5 rounded-[2rem] shadow-inner text-lg md:text-xl outline-none border-2 border-brand-light/70 focus:border-brand-primary bg-brand-bg font-black placeholder:text-slate-400 transition-all"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                autoFocus
+              />
+              {searchTerm && (
+                <button
+                  onClick={clearSearch}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full text-brand-dark bg-white hover:bg-brand-light/40 transition"
+                  aria-label="Limpar busca"
+                >
+                  <Icons.X />
+                </button>
               )}
             </div>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] md:text-xs font-bold uppercase tracking-[0.25em] text-slate-600">
+              <span className="px-3 py-2 bg-brand-bg rounded-2xl border border-brand-light/70">Exibindo {filteredCount} de {students.length}</span>
+              {hasSession && (
+                <span className="px-3 py-2 bg-brand-bg rounded-2xl border border-brand-light/70">Janela {sessionStartLabel} — {sessionEndLabel}</span>
+              )}
+            </div>
+          </div>
+          {hasSession ? (
+            <div className="flex flex-wrap gap-3 text-slate-600 text-sm font-semibold">
+              <span className="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100">{sessionStatusLabel}</span>
+              {activeSession?.title && <span className="px-3 py-2 rounded-xl bg-brand-bg border border-brand-light/60">Título: {activeSession.title}</span>}
+              <span className="px-3 py-2 rounded-xl bg-brand-bg border border-brand-light/60">Alunos aguardando: {waitingCount}</span>
+            </div>
+          ) : (
+            <p className="text-sm font-semibold text-slate-500">Sessão em espera. Deixe o quiosque aberto e toque em "Atualizar" quando a próxima sessão começar.</p>
           )}
         </div>
 
@@ -349,57 +440,101 @@ export default function KioskMode({ onExit }: KioskModeProps) {
               <p className="text-slate-500 font-black uppercase tracking-[0.2em] text-xs">Carregando sessão ativa...</p>
             </div>
           ) : !hasSession ? (
-            renderEmptyState('Sessão em Espera', 'Aguardando próxima sessão')
+            renderEmptyState('Sessão em Espera', 'Aguardando próxima sessão', 'Deixe o quiosque aberto e toque em "Atualizar" ao iniciar a próxima turma.')
           ) : currentStudentsList.length === 0 ? (
             renderEmptyState('Nenhum aluno vinculado', 'Sessão ativa sem alunos confirmáveis no momento')
           ) : (
-            currentStudentsList.map((item) => {
-              const isPresent = (item.status || '').toLowerCase() === 'confirmed';
-              const hasQrHistory = qrOpenedMap[item.record_id] || isPresent;
-              return (
-                <div key={item.record_id} className="relative">
-                  <button
-                    disabled={isPresent}
-                    onClick={() => startCheckinFlow(item)}
-                    className={`w-full bg-white p-8 md:p-10 rounded-[2.5rem] shadow-premium hover:shadow-glow flex items-center justify-between transition-all border-4 ${
-                      isPresent ? 'border-emerald-400 bg-emerald-50' : 'border-transparent active:scale-95 hover:border-brand-light/20'
+            <div className="grid gap-4 md:gap-5 md:grid-cols-2">
+              {currentStudentsList.map((item) => {
+                const isPresent = (item.status || '').toLowerCase() === 'confirmed';
+                const hasQrHistory = qrOpenedMap[item.record_id] || isPresent;
+                const confirmedAtLabel = item.confirmed_at ? formatTime(item.confirmed_at) : null;
+
+                return (
+                  <div
+                    key={item.record_id}
+                    role="button"
+                    tabIndex={isPresent ? -1 : 0}
+                    onClick={() => !isPresent && startCheckinFlow(item)}
+                    onKeyDown={(e) => {
+                      if (!isPresent && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault();
+                        startCheckinFlow(item);
+                      }
+                    }}
+                    className={`group relative rounded-[2.5rem] border-2 transition-all shadow-premium bg-white overflow-hidden ${
+                      isPresent
+                        ? 'border-emerald-400/70 bg-emerald-50/70 shadow-glow'
+                        : 'border-brand-light/50 hover:border-brand-primary/60 hover:shadow-glow cursor-pointer active:scale-[0.99]'
                     }`}
                   >
-                    <div className="flex items-center gap-6 md:gap-10 text-left">
-                      <div className={`w-16 h-16 md:w-20 md:h-20 rounded-[2rem] flex items-center justify-center font-black text-2xl md:text-3xl ${isPresent ? 'bg-emerald-100 text-emerald-600' : 'bg-brand-bg text-brand-dark'}`}>
+                    <div className="flex items-start gap-4 md:gap-6 p-6 md:p-7">
+                      <div
+                        className={`w-16 h-16 md:w-20 md:h-20 rounded-[1.75rem] flex items-center justify-center font-black text-2xl md:text-3xl ${
+                          isPresent ? 'bg-emerald-100 text-emerald-700' : 'bg-brand-bg text-brand-dark'
+                        } uppercase`}
+                        aria-hidden
+                      >
                         {item.full_name.charAt(0)}
                       </div>
-                      <div>
-                        <h4 className="text-2xl md:text-3xl font-black text-slate-800 leading-tight">{item.full_name}</h4>
-                        <p className="text-[11px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mt-2">Horário: {sessionStartLabel}</p>
-                        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mt-1">
-                          Status: {isPresent ? 'Confirmado' : 'Aguardando'}
+                      <div className="flex-1 min-w-0 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="text-xl md:text-2xl font-black text-slate-800 leading-tight truncate">{item.full_name}</h4>
+                          <span
+                            className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-[0.2em] ${
+                              isPresent ? 'bg-emerald-500 text-white' : 'bg-amber-50 text-amber-700 border border-amber-200'
+                            }`}
+                          >
+                            {isPresent ? 'Confirmado' : 'Aguardando'}
+                          </span>
+                          {isPresent && confirmedAtLabel && (
+                            <span className="px-3 py-1 rounded-full text-[11px] font-semibold uppercase tracking-[0.2em] bg-white text-emerald-700 border border-emerald-200">
+                              Confirmado às {confirmedAtLabel}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm md:text-base font-semibold text-slate-600">
+                          Horário da sessão: <span className="font-black">{sessionStartLabel} — {sessionEndLabel}</span>
                         </p>
+                        {activeSession?.title && <p className="text-xs font-semibold text-slate-500">Turma: {activeSession.title}</p>}
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      {isPresent && (
-                        <span className="px-4 py-2 bg-emerald-500 text-white rounded-full text-[11px] font-black uppercase tracking-[0.25em] shadow-glow">
-                          Confirmado
-                        </span>
-                      )}
-                      <div className={`${isPresent ? 'bg-emerald-500' : 'bg-brand-primary'} text-white px-6 md:px-8 py-4 rounded-[1.75rem] font-black text-xs uppercase tracking-[0.2em] shadow-glow`}>
-                        {isPresent ? 'Presença Validada' : 'Confirmar Presença'}
-                      </div>
+
+                    <div className="px-6 md:px-7 pb-6 flex flex-col sm:flex-row gap-3">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!isPresent) startCheckinFlow(item);
+                        }}
+                        disabled={isPresent}
+                        className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-4 rounded-[1.5rem] font-black text-sm md:text-base uppercase tracking-[0.18em] shadow-glow transition ${
+                          isPresent ? 'bg-emerald-500 text-white' : 'bg-brand-primary text-white hover:bg-brand-dark active:scale-95'
+                        }`}
+                      >
+                        {isPresent ? 'Presença confirmada' : 'Confirmar presença'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          return isPresent ? handleRetryReset(item) : handleRetryQr(item);
+                        }}
+                        disabled={!hasQrHistory && !isPresent}
+                        className={`px-4 py-4 rounded-[1.5rem] font-black text-xs md:text-sm uppercase tracking-[0.2em] border-2 transition w-full sm:w-48 ${
+                          isPresent
+                            ? 'border-emerald-500 text-emerald-700 bg-white hover:bg-emerald-50'
+                            : 'border-brand-primary text-brand-primary bg-white hover:bg-brand-bg'
+                        } disabled:opacity-40 disabled:cursor-not-allowed`}
+                      >
+                        {isPresent ? 'Desfazer confirmação' : 'Refazer QR'}
+                      </button>
                     </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => (isPresent ? handleRetryReset(item) : handleRetryQr(item))}
-                    disabled={!hasQrHistory && !isPresent}
-                    className="absolute right-6 top-6 bg-white text-brand-primary p-3 rounded-full shadow-premium border border-brand-light/50 active:scale-95 z-10 disabled:opacity-40 disabled:cursor-not-allowed"
-                    aria-label="Refazer QR"
-                  >
-                    <Icons.Refresh />
-                  </button>
-                </div>
-              );
-            })
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       </main>
