@@ -274,7 +274,7 @@ export default function KioskMode({ onExit }: KioskModeProps) {
 
   return (
     <div className="fixed inset-0 z-[400] bg-brand-bg flex flex-col overflow-hidden animate-in">
-      <header className="bg-brand-primary p-6 md:p-10 flex justify-between items-center shadow-xl shrink-0">
+      <header className="bg-brand-primary p-6 md:p-10 flex justify-between items-center shadow-xl shrink-0 sticky top-0 z-[500]">
         <div className="flex items-center gap-6 text-white">
           <Icons.Tablet />
           <div><h1 className="text-2xl font-black tracking-tighter uppercase">FisioStudio Quiosque</h1></div>
@@ -293,17 +293,31 @@ export default function KioskMode({ onExit }: KioskModeProps) {
         </div>
       </header>
 
-      <main className="flex-1 p-6 md:p-14 max-w-5xl mx-auto w-full flex flex-col overflow-hidden">
-        <div className="relative mb-6">
-          <span className="absolute left-10 top-1/2 -translate-y-1/2 text-brand-dark"><Icons.Search /></span>
-          <input
-            type="text"
-            placeholder="Digite seu nome para confirmar..."
-            className="w-full pl-24 pr-10 py-12 rounded-[4rem] shadow-2xl text-3xl outline-none border-4 border-transparent focus:border-brand-primary bg-white font-black placeholder:text-slate-200"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            autoFocus
-          />
+      <main className="flex-1 p-4 md:p-8 lg:p-12 max-w-6xl mx-auto w-full flex flex-col overflow-hidden">
+        <div className="space-y-4 mb-6">
+          <div className="relative">
+            <span className="absolute left-6 top-1/2 -translate-y-1/2 text-brand-dark"><Icons.Search /></span>
+            <input
+              type="text"
+              placeholder="Pesquisar aluno..."
+              className="w-full pl-16 pr-6 py-5 rounded-[2rem] shadow-premium text-lg md:text-xl outline-none border-3 border-brand-light/60 focus:border-brand-primary bg-white font-black placeholder:text-slate-300"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              autoFocus
+            />
+          </div>
+          {hasSession && (
+            <div className="flex flex-wrap items-center gap-3 text-brand-dark font-black uppercase text-xs md:text-sm tracking-[0.3em] sticky top-[96px] md:top-[110px] z-[400] bg-brand-bg/80 backdrop-blur-md py-2">
+              <span className="px-4 py-2 bg-white rounded-2xl shadow-inner text-base md:text-lg tracking-tight text-slate-800">
+                Sessão ativa: {sessionStartLabel} — {sessionEndLabel}
+              </span>
+              {activeSession?.title && (
+                <span className="px-4 py-2 bg-white/80 rounded-2xl shadow-inner text-brand-primary text-xs md:text-sm">
+                  {activeSession.title}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="mb-6 flex justify-end">
@@ -315,17 +329,6 @@ export default function KioskMode({ onExit }: KioskModeProps) {
             <Icons.Plus /> Adicionar pessoas
           </button>
         </div>
-
-        {hasSession && (
-          <div className="mb-6 flex flex-wrap items-center gap-3 text-brand-dark font-black uppercase text-[10px] tracking-[0.3em]">
-            <span className="px-4 py-2 bg-white rounded-2xl shadow-inner">
-              Sessão ativa • {sessionStartLabel} - {sessionEndLabel}
-            </span>
-            {activeSession?.title && (
-              <span className="px-4 py-2 bg-white/80 rounded-2xl shadow-inner text-brand-primary">{activeSession.title}</span>
-            )}
-          </div>
-        )}
 
         {(error || isReconnecting) && (
           <div
@@ -339,7 +342,7 @@ export default function KioskMode({ onExit }: KioskModeProps) {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto space-y-6 custom-scrollbar pr-4">
+        <div className="flex-1 overflow-y-auto space-y-4 md:space-y-5 custom-scrollbar pr-1 md:pr-2">
           {loading ? (
             <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
               <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-brand-primary"></div>
@@ -358,21 +361,31 @@ export default function KioskMode({ onExit }: KioskModeProps) {
                   <button
                     disabled={isPresent}
                     onClick={() => startCheckinFlow(item)}
-                    className={`w-full bg-white p-10 rounded-[4rem] shadow-premium hover:shadow-glow flex items-center justify-between transition-all border-4 ${
-                      isPresent ? 'opacity-50 border-emerald-500' : 'border-transparent active:scale-95 hover:border-brand-light/20'
+                    className={`w-full bg-white p-8 md:p-10 rounded-[2.5rem] shadow-premium hover:shadow-glow flex items-center justify-between transition-all border-4 ${
+                      isPresent ? 'border-emerald-400 bg-emerald-50' : 'border-transparent active:scale-95 hover:border-brand-light/20'
                     }`}
                   >
-                    <div className="flex items-center gap-10 text-left">
-                      <div className={`w-20 h-20 rounded-[2.5rem] flex items-center justify-center font-black text-3xl ${isPresent ? 'bg-emerald-100 text-emerald-600' : 'bg-brand-bg text-brand-dark'}`}>
+                    <div className="flex items-center gap-6 md:gap-10 text-left">
+                      <div className={`w-16 h-16 md:w-20 md:h-20 rounded-[2rem] flex items-center justify-center font-black text-2xl md:text-3xl ${isPresent ? 'bg-emerald-100 text-emerald-600' : 'bg-brand-bg text-brand-dark'}`}>
                         {item.full_name.charAt(0)}
                       </div>
                       <div>
-                        <h4 className="text-3xl font-black text-slate-800 leading-tight">{item.full_name}</h4>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Horário agendado: {sessionStartLabel}</p>
+                        <h4 className="text-2xl md:text-3xl font-black text-slate-800 leading-tight">{item.full_name}</h4>
+                        <p className="text-[11px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mt-2">Horário: {sessionStartLabel}</p>
+                        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mt-1">
+                          Status: {isPresent ? 'Confirmado' : 'Aguardando'}
+                        </p>
                       </div>
                     </div>
-                    <div className={`${isPresent ? 'bg-emerald-500' : 'bg-brand-primary'} text-white px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-glow`}>
-                      {isPresent ? 'Presença Validada' : 'Confirmar Presença'}
+                    <div className="flex items-center gap-3">
+                      {isPresent && (
+                        <span className="px-4 py-2 bg-emerald-500 text-white rounded-full text-[11px] font-black uppercase tracking-[0.25em] shadow-glow">
+                          Confirmado
+                        </span>
+                      )}
+                      <div className={`${isPresent ? 'bg-emerald-500' : 'bg-brand-primary'} text-white px-6 md:px-8 py-4 rounded-[1.75rem] font-black text-xs uppercase tracking-[0.2em] shadow-glow`}>
+                        {isPresent ? 'Presença Validada' : 'Confirmar Presença'}
+                      </div>
                     </div>
                   </button>
                   <button
