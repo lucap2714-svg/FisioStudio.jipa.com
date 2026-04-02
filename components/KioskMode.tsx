@@ -394,29 +394,23 @@ export default function KioskMode({ onExit }: KioskModeProps) {
       )}
 
       {isFullscreen && (
-        <>
-          <button
-            type="button"
-            onClick={() => setIsMenuOpen(true)}
-            className="fixed top-3 left-3 z-[520] p-3 rounded-full bg-slate-900/70 text-white shadow-lg active:scale-95"
-            aria-label="Abrir menu do quiosque"
-          >
-            <span className="block w-5 h-[2px] bg-white mb-1.5"></span>
-            <span className="block w-5 h-[2px] bg-white mb-1.5"></span>
-            <span className="block w-5 h-[2px] bg-white"></span>
-          </button>
-          <button
-            type="button"
-            onClick={closeFullscreen}
-            className="fixed top-3 right-3 z-[520] p-3 rounded-full bg-slate-900/70 text-white shadow-lg active:scale-95"
-            aria-label="Sair do modo tela cheia"
-          >
-            <Icons.Fullscreen />
-          </button>
-        </>
+        <button
+          type="button"
+          onClick={() => setIsMenuOpen(true)}
+          className="fixed top-3 left-3 z-[520] p-3 rounded-full bg-slate-900/70 text-white shadow-lg active:scale-95"
+          aria-label="Abrir menu do quiosque"
+        >
+          <span className="block w-5 h-[2px] bg-white mb-1.5"></span>
+          <span className="block w-5 h-[2px] bg-white mb-1.5"></span>
+          <span className="block w-5 h-[2px] bg-white"></span>
+        </button>
       )}
 
-      <main className="flex-1 p-4 md:p-8 lg:p-12 max-w-6xl mx-auto w-full flex flex-col overflow-visible relative">
+      <main
+        className={`flex-1 max-w-6xl mx-auto w-full flex flex-col overflow-visible relative ${
+          isFullscreen ? 'p-3 md:p-4' : 'p-4 md:p-8 lg:p-12'
+        }`}
+      >
         <div className="bg-white rounded-[2.5rem] shadow-premium border border-brand-light/60 p-4 md:p-6 mb-6 space-y-4 sticky top-4 md:top-6 z-[450]">
           <div className="flex flex-col md:flex-row md:items-center gap-3">
             <div className="relative flex-1">

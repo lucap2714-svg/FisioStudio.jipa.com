@@ -69,8 +69,18 @@ export const useKiosk = (): UseKioskResult => {
       }
 
       const sessionChanged = !lastSessionRef.current || lastSessionRef.current.id !== activeSession.id;
+      if (sessionChanged) {
+        console.debug(
+          `[Trace ${trace}] [Kiosk][Hook] session change detected id=${activeSession.id} start=${activeSession.start_at} end=${activeSession.end_at}`
+        );
+      }
       try {
         const attendees = await kioskService.listSessionStudents(activeSession.id);
+        console.debug(
+          `[Trace ${trace}] [Kiosk][Hook] loaded students session=${activeSession.id} count=${attendees.length} ids=${attendees
+            .map((s) => s.student_id)
+            .join(',')}`
+        );
         applyState(activeSession, attendees);
         setLastSync(new Date());
         setLoading(false);
@@ -93,6 +103,9 @@ export const useKiosk = (): UseKioskResult => {
     } catch (e: any) {
       console.error(`[Trace ${trace}] [Kiosk] Falha ao atualizar sessão ativa`, e);
       const last = lastSessionRef.current;
+      if (last && !isWithinWindow(last, now)) {
+        console.debug(`[Trace ${trace}] [Kiosk][Hook] session expired id=${last.id} now=${now.toISOString()} end=${last.end_at}`);
+      }
       if (isWithinWindow(last, new Date())) {
         setIsReconnecting(true);
         setError(e?.message || 'Reconectando ao Supabase...');

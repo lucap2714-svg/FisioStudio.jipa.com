@@ -40,13 +40,19 @@ const normalizeStudentId = (id: string | number): number => {
   return normalized;
 };
 
-const mapSession = (row: any): KioskSession => ({
-  id: String(row.id),
-  title: row.title ?? null,
-  start_at: row.start_at,
-  end_at: row.end_at,
-  is_active: !!row.is_active,
-});
+const mapSession = (row: any): KioskSession => {
+  const startIso = row.start_at;
+  const endIso = row.end_at;
+  const start = startIso ? Date.parse(startIso) : NaN;
+  const fallbackEnd = !Number.isNaN(start) ? new Date(start + 90 * 60 * 1000).toISOString() : startIso;
+  return {
+    id: String(row.id),
+    title: row.title ?? null,
+    start_at: startIso,
+    end_at: endIso ?? fallbackEnd,
+    is_active: !!row.is_active,
+  };
+};
 
 const mapStudent = (row: any, nameCol: string): KioskSessionStudent => ({
   record_id: String(row.id),
@@ -70,16 +76,22 @@ export const kioskService = {
         .select('id,title,start_at,end_at,is_active')
         .eq('is_active', true)
         .lte('start_at', nowIso)
-        .gt('end_at', nowIso)
         .order('start_at', { ascending: false })
-        .limit(1);
+        .limit(5);
       if (error) {
         console.error(`[Trace ${trace}] [Kiosk] Erro ao buscar sessão ativa`, error);
         if (isRelationMissing(error)) return null;
         throw error;
       }
       if (!data || data.length === 0) return null;
-      return mapSession(data[0]);
+      const sessions = (data || []).map(mapSession);
+      const nowTs = Date.parse(nowIso);
+      const active = sessions.find((s) => {
+        const start = Date.parse(s.start_at);
+        const end = Date.parse(s.end_at);
+        return !Number.isNaN(start) && !Number.isNaN(end) && start <= nowTs && nowTs < end;
+      });
+      return active || null;
     } catch (e) {
       console.error(`[Trace ${trace}] [Kiosk] Falha inesperada getActiveSession`, e);
       return null;
