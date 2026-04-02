@@ -121,7 +121,9 @@ export const useKiosk = (): UseKioskResult => {
     const confirmedAt = await kioskService.confirmAttendance(recordId, sessionId, studentId);
     setStudents((prev) => {
       const updated = prev.map((s) =>
-        s.record_id === recordId ? { ...s, status: 'confirmed', confirmed_at: confirmedAt } : s
+        s.student_id === studentId && s.session_id === sessionId
+          ? { ...s, status: 'confirmed', confirmed_at: confirmedAt }
+          : s
       );
       lastStudentsRef.current = updated;
       return updated;
@@ -135,7 +137,9 @@ export const useKiosk = (): UseKioskResult => {
     await kioskService.resetAttendance(recordId, sessionId, studentId);
     setStudents((prev) => {
       const updated = prev.map((s) =>
-        s.record_id === recordId ? { ...s, status: 'scheduled', confirmed_at: null } : s
+        s.student_id === studentId && s.session_id === sessionId
+          ? { ...s, status: 'scheduled', confirmed_at: null }
+          : s
       );
       lastStudentsRef.current = updated;
       return updated;

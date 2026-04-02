@@ -36,6 +36,8 @@ export default function KioskMode({ onExit }: KioskModeProps) {
   const [pinValue, setPinValue] = useState('');
   const [qrOpenedMap, setQrOpenedMap] = useState<Record<string, boolean>>({});
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(!!document.fullscreenElement);
   const [allStudents, setAllStudents] = useState<Student[]>([]);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [isSavingSession, setIsSavingSession] = useState(false);
@@ -64,6 +66,16 @@ export default function KioskMode({ onExit }: KioskModeProps) {
     const clock = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(clock);
   }, []);
+
+  useEffect(() => {
+    const handleFs = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFs);
+    return () => document.removeEventListener('fullscreenchange', handleFs);
+  }, []);
+
+  useEffect(() => {
+    if (!isFullscreen) setIsMenuOpen(false);
+  }, [isFullscreen]);
 
   const currentStudentsList = useMemo(() => {
     const base = Array.isArray(students) ? students : [];
@@ -170,6 +182,12 @@ export default function KioskMode({ onExit }: KioskModeProps) {
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen();
     else if (document.exitFullscreen) document.exitFullscreen();
+  };
+
+  const closeFullscreen = () => {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen();
+    }
   };
 
   const startCheckinFlow = (student: KioskSessionStudent) => {
@@ -303,77 +321,102 @@ export default function KioskMode({ onExit }: KioskModeProps) {
 
   return (
     <div className="min-h-[100dvh] bg-brand-bg flex flex-col overflow-y-auto animate-in">
-      <header className="sticky top-0 z-[500] bg-brand-primary text-white shadow-xl">
-        <div className="max-w-6xl mx-auto w-full px-4 md:px-8 py-4 md:py-5 space-y-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3 md:gap-4">
-              <div className="p-3 md:p-4 bg-white/15 rounded-2xl">
-                <Icons.Tablet />
+      {!isFullscreen && (
+        <header className="sticky top-0 z-[500] bg-brand-primary text-white shadow-xl">
+          <div className="max-w-6xl mx-auto w-full px-4 md:px-8 py-4 md:py-5 space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 md:gap-4">
+                <div className="p-3 md:p-4 bg-white/15 rounded-2xl">
+                  <Icons.Tablet />
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-white/80">Quiosque</p>
+                  <h1 className="text-2xl md:text-3xl font-black tracking-tight leading-none">Confirmação de presença</h1>
+                </div>
               </div>
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-white/80">Quiosque</p>
-                <h1 className="text-2xl md:text-3xl font-black tracking-tight leading-none">Confirmação de presença</h1>
+              <div className="flex items-center gap-2 md:gap-3">
+                <div className="hidden sm:flex items-center gap-2 bg-white/15 px-4 py-3 rounded-2xl text-lg font-black shadow-inner tabular-nums">
+                  {currentTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                </div>
+                <button
+                  onClick={refresh}
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 px-4 md:px-5 py-3 rounded-2xl bg-white text-brand-primary font-black uppercase text-[11px] tracking-[0.25em] shadow-glow active:scale-95 transition disabled:opacity-60"
+                >
+                  <Icons.Refresh /> Atualizar
+                </button>
+                <button
+                  onClick={toggleFullscreen}
+                  className="hidden md:inline-flex items-center justify-center p-3 rounded-2xl bg-white/15 text-white border border-white/10 active:scale-95 transition"
+                  aria-label="Tela cheia"
+                >
+                  <Icons.Fullscreen />
+                </button>
+                <button
+                  onClick={() => setIsPinModalOpen(true)}
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-white/15 text-white border border-white/15 active:scale-95 transition"
+                >
+                  <Icons.Lock /> Sair
+                </button>
               </div>
             </div>
-            <div className="flex items-center gap-2 md:gap-3">
-              <div className="hidden sm:flex items-center gap-2 bg-white/15 px-4 py-3 rounded-2xl text-lg font-black shadow-inner tabular-nums">
-                {currentTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-              </div>
-              <button
-                onClick={refresh}
-                disabled={loading}
-                className="inline-flex items-center gap-2 px-4 md:px-5 py-3 rounded-2xl bg-white text-brand-primary font-black uppercase text-[11px] tracking-[0.25em] shadow-glow active:scale-95 transition disabled:opacity-60"
-              >
-                <Icons.Refresh /> Atualizar
-              </button>
-              <button
-                onClick={toggleFullscreen}
-                className="hidden md:inline-flex items-center justify-center p-3 rounded-2xl bg-white/15 text-white border border-white/10 active:scale-95 transition"
-                aria-label="Tela cheia"
-              >
-                <Icons.Fullscreen />
-              </button>
-              <button
-                onClick={() => setIsPinModalOpen(true)}
-                className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-white/15 text-white border border-white/15 active:scale-95 transition"
-              >
-                <Icons.Lock /> Sair
-              </button>
-            </div>
-          </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="bg-white/10 border border-white/10 rounded-2xl p-4 md:p-5 shadow-inner">
-              <p className="text-[11px] uppercase font-semibold text-white/80 tracking-[0.3em]">Sessão</p>
-              <p className="text-lg md:text-xl font-black leading-tight">{sessionWindowLabel}</p>
-              {activeSession?.title && (
-                <p className="text-sm text-white/80 mt-1 truncate">{activeSession.title}</p>
-              )}
-            </div>
-            <div className="bg-white/10 border border-white/10 rounded-2xl p-4 md:p-5 shadow-inner flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] uppercase font-semibold text-white/80 tracking-[0.3em]">Status</p>
-                <p className="text-lg font-black">{sessionStatusLabel}</p>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="bg-white/10 border border-white/10 rounded-2xl p-4 md:p-5 shadow-inner">
+                <p className="text-[11px] uppercase font-semibold text-white/80 tracking-[0.3em]">Sessão</p>
+                <p className="text-lg md:text-xl font-black leading-tight">{sessionWindowLabel}</p>
+                {activeSession?.title && (
+                  <p className="text-sm text-white/80 mt-1 truncate">{activeSession.title}</p>
+                )}
               </div>
-              <span className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-[0.25em] border ${sessionStatusTone}`}>
-                {hasSession ? 'Janela ' + sessionWindowLabel : 'Aguardando nova sessão'}
-              </span>
-            </div>
-            <div className="bg-white/10 border border-white/10 rounded-2xl p-4 md:p-5 shadow-inner">
-              <p className="text-[11px] uppercase font-semibold text-white/80 tracking-[0.3em]">Alunos</p>
-              <div className="flex items-center gap-3 flex-wrap mt-1">
-                <span className="text-2xl md:text-3xl font-black tabular-nums">{students.length}</span>
-                <div className="flex gap-2 text-[11px] md:text-xs font-semibold uppercase tracking-[0.25em]">
-                  <span className="px-3 py-2 rounded-full bg-emerald-500/20 text-white border border-white/20">Confirmados {confirmedCount}</span>
-                  <span className="px-3 py-2 rounded-full bg-white/15 text-white border border-white/20">Aguardando {waitingCount}</span>
+              <div className="bg-white/10 border border-white/10 rounded-2xl p-4 md:p-5 shadow-inner flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] uppercase font-semibold text-white/80 tracking-[0.3em]">Status</p>
+                  <p className="text-lg font-black">{sessionStatusLabel}</p>
+                </div>
+                <span className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-[0.25em] border ${sessionStatusTone}`}>
+                  {hasSession ? 'Janela ' + sessionWindowLabel : 'Aguardando nova sessão'}
+                </span>
+              </div>
+              <div className="bg-white/10 border border-white/10 rounded-2xl p-4 md:p-5 shadow-inner">
+                <p className="text-[11px] uppercase font-semibold text-white/80 tracking-[0.3em]">Alunos</p>
+                <div className="flex items-center gap-3 flex-wrap mt-1">
+                  <span className="text-2xl md:text-3xl font-black tabular-nums">{students.length}</span>
+                  <div className="flex gap-2 text-[11px] md:text-xs font-semibold uppercase tracking-[0.25em]">
+                    <span className="px-3 py-2 rounded-full bg-emerald-500/20 text-white border border-white/20">Confirmados {confirmedCount}</span>
+                    <span className="px-3 py-2 rounded-full bg-white/15 text-white border border-white/20">Aguardando {waitingCount}</span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
         </div>
       </header>
 
-      <main className="flex-1 p-4 md:p-8 lg:p-12 max-w-6xl mx-auto w-full flex flex-col overflow-visible">
+      {isFullscreen && (
+        <>
+          <button
+            type="button"
+            onClick={() => setIsMenuOpen(true)}
+            className="fixed top-3 left-3 z-[520] p-3 rounded-full bg-slate-900/70 text-white shadow-lg active:scale-95"
+            aria-label="Abrir menu do quiosque"
+          >
+            <span className="block w-5 h-[2px] bg-white mb-1.5"></span>
+            <span className="block w-5 h-[2px] bg-white mb-1.5"></span>
+            <span className="block w-5 h-[2px] bg-white"></span>
+          </button>
+          <button
+            type="button"
+            onClick={closeFullscreen}
+            className="fixed top-3 right-3 z-[520] p-3 rounded-full bg-slate-900/70 text-white shadow-lg active:scale-95"
+            aria-label="Sair do modo tela cheia"
+          >
+            <Icons.Fullscreen />
+          </button>
+        </>
+      )}
+      )}
+
+      <main className="flex-1 p-4 md:p-8 lg:p-12 max-w-6xl mx-auto w-full flex flex-col overflow-visible relative">
         <div className="bg-white rounded-[2.5rem] shadow-premium border border-brand-light/60 p-4 md:p-6 mb-6 space-y-4 sticky top-4 md:top-6 z-[450]">
           <div className="flex flex-col md:flex-row md:items-center gap-3">
             <div className="relative flex-1">
@@ -444,11 +487,11 @@ export default function KioskMode({ onExit }: KioskModeProps) {
             </div>
           ) : !hasSession ? (
             renderEmptyState('Sessão em Espera', 'Aguardando próxima sessão', 'Deixe o quiosque aberto e toque em "Atualizar" ao iniciar a próxima turma.')
-          ) : currentStudentsList.length === 0 ? (
-            renderEmptyState('Nenhum aluno vinculado', 'Sessão ativa sem alunos confirmáveis no momento')
-          ) : (
-            <div className="grid gap-4 md:gap-5 md:grid-cols-2">
-              {currentStudentsList.map((item) => {
+      ) : currentStudentsList.length === 0 ? (
+        renderEmptyState('Nenhum aluno vinculado', 'Sessão ativa sem alunos confirmáveis no momento')
+      ) : (
+        <div className="grid gap-4 md:gap-5 md:grid-cols-2">
+          {currentStudentsList.map((item) => {
                 const isPresent = (item.status || '').toLowerCase() === 'confirmed';
                 const hasQrHistory = qrOpenedMap[item.record_id] || isPresent;
                 const confirmedAtLabel = item.confirmed_at ? formatTime(item.confirmed_at) : null;
@@ -681,5 +724,55 @@ export default function KioskMode({ onExit }: KioskModeProps) {
         </div>
       )}
     </div>
+
+      {isFullscreen && isMenuOpen && (
+        <div
+          className="fixed inset-0 z-[515] bg-slate-900/60 backdrop-blur-sm"
+          onClick={() => setIsMenuOpen(false)}
+        >
+          <aside
+            className="absolute top-0 left-0 h-full w-72 max-w-[80vw] bg-white shadow-2xl p-6 flex flex-col gap-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 font-black text-slate-800">
+                <span className="w-2 h-8 bg-brand-primary rounded-full"></span>
+                Menu do Quiosque
+              </div>
+              <button
+                onClick={() => setIsMenuOpen(false)}
+                className="p-2 rounded-full bg-slate-100 text-slate-500 hover:text-slate-700"
+                aria-label="Fechar menu"
+              >
+                <Icons.X />
+              </button>
+            </div>
+            <button
+              onClick={() => { refresh(); setIsMenuOpen(false); }}
+              className="w-full px-4 py-3 rounded-xl bg-brand-bg border border-brand-light/70 text-brand-dark font-bold text-left"
+            >
+              Atualizar lista
+            </button>
+            <button
+              onClick={() => { setIsAddModalOpen(true); setIsMenuOpen(false); }}
+              className="w-full px-4 py-3 rounded-xl bg-brand-primary text-white font-bold text-left shadow-glow"
+            >
+              Adicionar pessoas
+            </button>
+            <button
+              onClick={() => { setIsPinModalOpen(true); setIsMenuOpen(false); }}
+              className="w-full px-4 py-3 rounded-xl bg-slate-100 text-slate-700 font-bold text-left"
+            >
+              Sair do quiosque
+            </button>
+            <button
+              onClick={() => { closeFullscreen(); setIsMenuOpen(false); }}
+              className="w-full px-4 py-3 rounded-xl bg-white border border-brand-light/70 text-slate-700 font-bold text-left"
+            >
+              Sair do modo tela cheia
+            </button>
+          </aside>
+        </div>
+      )}
   );
 }
