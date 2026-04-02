@@ -185,10 +185,11 @@ export default function KioskMode({ onExit }: KioskModeProps) {
   };
 
   const handleFinalConfirm = async () => {
-    if (!activeCheckinItem || isConfirming) return;
+    if (!activeCheckinItem || isConfirming || !activeSession) return;
     setIsConfirming(true);
+    console.debug('[Kiosk][UI] confirm click', { sessionId: activeSession.id, studentId: activeCheckinItem.student_id, name: activeCheckinItem.full_name });
     try {
-      await confirm(activeCheckinItem.record_id);
+      await confirm(activeCheckinItem.record_id, activeSession.id, activeCheckinItem.student_id);
       setActiveCheckinItem(null);
       setSearchTerm('');
     } catch (err) {
@@ -200,8 +201,10 @@ export default function KioskMode({ onExit }: KioskModeProps) {
   };
 
   const handleRetryReset = async (student: KioskSessionStudent) => {
+    if (!activeSession) return;
+    console.debug('[Kiosk][UI] reset click', { sessionId: activeSession.id, studentId: student.student_id, name: student.full_name });
     try {
-      await reset(student.record_id);
+      await reset(student.record_id, activeSession.id, student.student_id);
       setQrOpenedMap((prev) => ({ ...prev, [student.record_id]: true }));
       setActiveCheckinItem({ ...student, status: 'scheduled', confirmed_at: null });
     } catch (e) {
@@ -452,7 +455,7 @@ export default function KioskMode({ onExit }: KioskModeProps) {
 
                 return (
                   <div
-                    key={item.record_id}
+                    key={`${item.session_id}-${item.student_id}`}
                     role="button"
                     tabIndex={isPresent ? -1 : 0}
                     onClick={() => !isPresent && startCheckinFlow(item)}

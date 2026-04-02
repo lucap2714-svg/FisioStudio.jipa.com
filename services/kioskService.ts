@@ -185,17 +185,26 @@ export const kioskService = {
     }
   },
 
-  async confirmAttendance(recordId: string): Promise<string> {
+  async confirmAttendance(recordId: string, sessionId: string, studentId: string): Promise<string> {
     ensure();
     const trace = traceId('kiosk:confirm');
     const confirmed_at = new Date().toISOString();
+    console.debug(`[Trace ${trace}] [Kiosk][Supabase] confirm start session=${sessionId} student=${studentId} record=${recordId}`);
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('kiosk_session_students')
         .update({ status: 'confirmed', confirmed_at })
-        .eq('id', recordId);
+        .eq('session_id', sessionId)
+        .eq('student_id', studentId)
+        .select('id')
+        .limit(1);
       if (error) throw error;
-      console.debug(`[Trace ${trace}] [Kiosk] confirm ok record=${recordId}`);
+      const affected = data?.length ?? 0;
+      console.debug(`[Trace ${trace}] [Kiosk] confirm ok affected=${affected} record=${recordId}`);
+      if (affected !== 1) {
+        console.error(`[Trace ${trace}] [Kiosk] confirm unexpected affected=${affected} session=${sessionId} student=${studentId}`);
+        throw new Error('Não foi possível confirmar este aluno.');
+      }
       return confirmed_at;
     } catch (e) {
       console.error(`[Trace ${trace}] [Kiosk] confirmAttendance erro`, e);
@@ -203,16 +212,25 @@ export const kioskService = {
     }
   },
 
-  async resetAttendance(recordId: string): Promise<void> {
+  async resetAttendance(recordId: string, sessionId: string, studentId: string): Promise<void> {
     ensure();
     const trace = traceId('kiosk:reset');
+    console.debug(`[Trace ${trace}] [Kiosk][Supabase] reset start session=${sessionId} student=${studentId} record=${recordId}`);
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('kiosk_session_students')
         .update({ status: 'scheduled', confirmed_at: null })
-        .eq('id', recordId);
+        .eq('session_id', sessionId)
+        .eq('student_id', studentId)
+        .select('id')
+        .limit(1);
       if (error) throw error;
-      console.debug(`[Trace ${trace}] [Kiosk] reset ok record=${recordId}`);
+      const affected = data?.length ?? 0;
+      console.debug(`[Trace ${trace}] [Kiosk] reset ok affected=${affected} record=${recordId}`);
+      if (affected !== 1) {
+        console.error(`[Trace ${trace}] [Kiosk] reset unexpected affected=${affected} session=${sessionId} student=${studentId}`);
+        throw new Error('Não foi possível desfazer para este aluno.');
+      }
     } catch (e) {
       console.error(`[Trace ${trace}] [Kiosk] resetAttendance erro`, e);
       throw e;

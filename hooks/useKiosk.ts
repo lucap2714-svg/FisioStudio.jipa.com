@@ -12,8 +12,8 @@ interface UseKioskResult {
   isReconnecting: boolean;
   lastSync: Date | null;
   refresh: () => Promise<void>;
-  confirm: (recordId: string) => Promise<void>;
-  reset: (recordId: string) => Promise<void>;
+  confirm: (recordId: string, sessionId: string, studentId: string) => Promise<void>;
+  reset: (recordId: string, sessionId: string, studentId: string) => Promise<void>;
 }
 
 const isWithinWindow = (session: KioskSession | null, now: Date) => {
@@ -115,10 +115,10 @@ export const useKiosk = (): UseKioskResult => {
     };
   }, [refresh]);
 
-  const confirm = useCallback(async (recordId: string) => {
+  const confirm = useCallback(async (recordId: string, sessionId: string, studentId: string) => {
     const trace = traceId('kiosk:confirmAction');
-    console.debug(`[Trace ${trace}] [Kiosk][Hook] confirm record=${recordId}`);
-    const confirmedAt = await kioskService.confirmAttendance(recordId);
+    console.debug(`[Trace ${trace}] [Kiosk][Hook] confirm record=${recordId} session=${sessionId} student=${studentId}`);
+    const confirmedAt = await kioskService.confirmAttendance(recordId, sessionId, studentId);
     setStudents((prev) => {
       const updated = prev.map((s) =>
         s.record_id === recordId ? { ...s, status: 'confirmed', confirmed_at: confirmedAt } : s
@@ -129,10 +129,10 @@ export const useKiosk = (): UseKioskResult => {
     setLastSync(new Date());
   }, []);
 
-  const reset = useCallback(async (recordId: string) => {
+  const reset = useCallback(async (recordId: string, sessionId: string, studentId: string) => {
     const trace = traceId('kiosk:resetAction');
-    console.debug(`[Trace ${trace}] [Kiosk][Hook] reset record=${recordId}`);
-    await kioskService.resetAttendance(recordId);
+    console.debug(`[Trace ${trace}] [Kiosk][Hook] reset record=${recordId} session=${sessionId} student=${studentId}`);
+    await kioskService.resetAttendance(recordId, sessionId, studentId);
     setStudents((prev) => {
       const updated = prev.map((s) =>
         s.record_id === recordId ? { ...s, status: 'scheduled', confirmed_at: null } : s
