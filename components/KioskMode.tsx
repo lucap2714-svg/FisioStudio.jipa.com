@@ -299,7 +299,7 @@ export default function KioskMode({ onExit }: KioskModeProps) {
   );
 
   return (
-    <div className="fixed inset-0 z-[400] bg-brand-bg flex flex-col overflow-hidden animate-in">
+    <div className="min-h-[100dvh] bg-brand-bg flex flex-col overflow-y-auto animate-in">
       <header className="sticky top-0 z-[500] bg-brand-primary text-white shadow-xl">
         <div className="max-w-6xl mx-auto w-full px-4 md:px-8 py-4 md:py-5 space-y-3">
           <div className="flex items-center justify-between gap-4">
@@ -370,7 +370,7 @@ export default function KioskMode({ onExit }: KioskModeProps) {
         </div>
       </header>
 
-      <main className="flex-1 p-4 md:p-8 lg:p-12 max-w-6xl mx-auto w-full flex flex-col overflow-hidden">
+      <main className="flex-1 p-4 md:p-8 lg:p-12 max-w-6xl mx-auto w-full flex flex-col overflow-visible">
         <div className="bg-white rounded-[2.5rem] shadow-premium border border-brand-light/60 p-4 md:p-6 mb-6 space-y-4 sticky top-4 md:top-6 z-[450]">
           <div className="flex flex-col md:flex-row md:items-center gap-3">
             <div className="relative flex-1">
