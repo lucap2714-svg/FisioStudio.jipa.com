@@ -391,6 +391,7 @@ export default function KioskMode({ onExit }: KioskModeProps) {
             </div>
         </div>
       </header>
+      )}
 
       {isFullscreen && (
         <>
@@ -413,7 +414,6 @@ export default function KioskMode({ onExit }: KioskModeProps) {
             <Icons.Fullscreen />
           </button>
         </>
-      )}
       )}
 
       <main className="flex-1 p-4 md:p-8 lg:p-12 max-w-6xl mx-auto w-full flex flex-col overflow-visible relative">
@@ -723,8 +723,6 @@ export default function KioskMode({ onExit }: KioskModeProps) {
           </div>
         </div>
       )}
-    </div>
-
       {isFullscreen && isMenuOpen && (
         <div
           className="fixed inset-0 z-[515] bg-slate-900/60 backdrop-blur-sm"
@@ -774,5 +772,6 @@ export default function KioskMode({ onExit }: KioskModeProps) {
           </aside>
         </div>
       )}
+    </div>
   );
 }
