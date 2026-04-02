@@ -1,7 +1,7 @@
 
 /**
  * Utilitário de Exportação PDF Consolidado - FisioStudio
- * Resolve problemas de cortes (cropping) e páginas pretas (canvas errors).
+ * Resolve problemas de cortes (cropping) e p�ginas pretas (canvas errors).
  */
 
 export async function exportSheetToPdf(
@@ -9,7 +9,7 @@ export async function exportSheetToPdf(
   filename: string,
   options?: { studentName?: string; docType?: string; onDriveStatus?: (status: 'ok' | 'error' | 'skip') => void }
 ) {
-  console.log(`[PDF_EXPORT] Iniciando exportação: ${filename}`);
+  console.log(`[PDF_EXPORT] Iniciando exporta��o: ${filename}`);
   
   // 1. Aguardar fontes e imagens carregarem completamente
   await document.fonts.ready;
@@ -110,12 +110,12 @@ export async function exportSheetToPdf(
     let heightLeft = contentHeight;
     let position = 0;
 
-    // 6. Tiling (Fatiamento Manual) para suporte a múltiplas páginas sem cortes
+    // 6. Tiling (Fatiamento Manual) para suporte a múltiplas p�ginas sem cortes
     // Primeira página
     pdf.addImage(imgData, 'JPEG', margin, position, contentWidth, contentHeight);
     heightLeft -= pdfHeight;
 
-    // Páginas subsequentes
+    // p�ginas subsequentes
     while (heightLeft > 0) {
       position = heightLeft - contentHeight;
       pdf.addPage();
@@ -123,7 +123,7 @@ export async function exportSheetToPdf(
       heightLeft -= pdfHeight;
     }
 
-    console.log(`[PDF_EXPORT] PDF gerado com ${pdf.internal.getNumberOfPages()} páginas.`);
+    console.log(`[PDF_EXPORT] PDF gerado com ${pdf.internal.getNumberOfPages()} p�ginas.`);
     pdf.save(filename);
 
     const shouldUpload = Boolean(options?.studentName) && typeof fetch !== 'undefined';
@@ -152,7 +152,7 @@ export async function exportSheetToPdf(
     }
 
   } catch (error: any) {
-    console.error("[PDF_EXPORT] Falha crítica:", error);
+    console.error("[PDF_EXPORT] Falha cr�tica:", error);
     alert(`Erro ao gerar o PDF: ${error.message || "Erro desconhecido"}`);
   } finally {
     if (document.body.contains(wrapper)) {
@@ -160,4 +160,6 @@ export async function exportSheetToPdf(
     }
   }
 }
+
+
 

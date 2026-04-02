@@ -214,6 +214,9 @@ export default function TrainingPlanView({ studentId, onBack, currentUser }: Tra
           <button onClick={handleDownloadPDF} disabled={isExporting} className="flex-1 sm:flex-none px-6 py-3 bg-white border-2 border-brand-light text-slate-700 font-black rounded-xl text-[10px] uppercase transition-all hover:bg-slate-50 active:scale-95 flex items-center justify-center gap-2">
             <Icons.Download /> {isExporting ? 'Processando...' : 'Exportar PDF'}
           </button>
+          <button onClick={() => handleDownloadPDF(true)} disabled={isExporting} className="flex-1 sm:flex-none px-6 py-3 bg-white border-2 border-brand-primary text-brand-primary font-black rounded-xl text-[10px] uppercase transition-all hover:bg-brand-bg active:scale-95 flex items-center justify-center gap-2">
+            <Icons.Download /> {isExporting ? 'Processando...' : 'Salvar no Drive'}
+          </button>
           {!isFinalized && (
             <>
               <button onClick={() => handleSave(false)} className="flex-1 sm:flex-none px-6 py-3 bg-white border-2 border-brand-primary text-brand-primary font-black rounded-xl text-[10px] uppercase transition-all hover:bg-brand-bg active:scale-95">Rascunho</button>

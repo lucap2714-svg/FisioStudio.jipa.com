@@ -127,13 +127,13 @@ export default function AssessmentFormView({ studentId, onBack, currentUser }: A
     if (!formRef.current || !student) return;
     setIsExporting(true);
     try {
-        await exportSheetToPdf(formRef.current, `Avaliacao_${student.name.replace(/\s+/g, '_')}.pdf`, {
-          studentName: student.name,
-          docType: 'Avaliação',
-          onDriveStatus: (s) => console.debug('[PDF][Drive] status', s)
-        });
+      await exportSheetToPdf(formRef.current, `Avaliacao_${student.name.replace(/\s+/g, '_')}.pdf`, {
+        studentName: student.name,
+        docType: 'Avaliação',
+        onDriveStatus: (s) => console.debug('[PDF][Drive] status', s)
+      });
     } finally {
-        setIsExporting(false);
+      setIsExporting(false);
     }
   };
 
@@ -155,6 +155,9 @@ export default function AssessmentFormView({ studentId, onBack, currentUser }: A
           )}
           <button onClick={handleDownloadPDF} disabled={isExporting} className="flex-1 sm:flex-none px-6 py-3.5 bg-white border-2 border-brand-light rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-700 flex items-center justify-center gap-2 hover:bg-slate-50 transition-colors">
             <Icons.Download /> {isExporting ? 'Processando...' : 'Exportar PDF'}
+          </button>
+          <button onClick={() => handleDownloadPDF(true)} disabled={isExporting} className="flex-1 sm:flex-none px-6 py-3.5 bg-white border-2 border-brand-primary text-brand-primary font-black rounded-xl uppercase text-[10px] tracking-widest hover:bg-brand-bg transition-all">
+            <Icons.Download /> {isExporting ? 'Processando...' : 'Salvar no Drive'}
           </button>
           {!isFinalized && (
             <>
